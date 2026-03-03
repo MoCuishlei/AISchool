@@ -1,0 +1,251 @@
+<template>
+  <div class="session-syllabus">
+    <div class="page-header">
+      <el-button link @click="$router.push('/my-courses')"><el-icon><ArrowLeft /></el-icon> 课程列表</el-button>
+      <div class="header-info">
+        <h2>{{ subject }} — 学习大纲</h2>
+        <p>点击知识点开始上课，三色标记掌握进度，可任意顺序学习</p>
+      </div>
+      <div v-if="examUnlock.midterm || examUnlock.has_midterm || examUnlock.final || examUnlock.has_final"
+        class="exam-buttons">
+        <el-button v-if="examUnlock.midterm" type="warning" @click="goExam('midterm')">
+          📑 期中考试（已解锁）
+        </el-button>
+        <el-button v-if="examUnlock.has_midterm" plain @click="goExam('midterm')">
+          📑 期中考试（已考）
+        </el-button>
+        <el-button v-if="examUnlock.final" type="danger" @click="goExam('final')">
+          🎓 期末考试（已解锁）
+        </el-button>
+      </div>
+    </div>
+
+    <!-- 总进度 -->
+    <div v-if="items.length" class="overall-card">
+      <div class="overall-stats">
+        <div class="stat">
+          <span class="stat-num text-green">{{ doneCount }}</span>
+          <span class="stat-label">已掌握 🟢</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num text-yellow">{{ learningCount }}</span>
+          <span class="stat-label">学习中 🟡</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num text-red">{{ noneCount }}</span>
+          <span class="stat-label">未学习 🔴</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">{{ examUnlock.progress }}%</span>
+          <span class="stat-label">总进度</span>
+        </div>
+      </div>
+      <div class="overall-bar">
+        <div class="segment seg-done" :style="{width: (doneCount/items.length*100) + '%'}" />
+        <div class="segment seg-learning" :style="{width: (learningCount/items.length*100) + '%'}" />
+      </div>
+      <div class="unlock-hint">
+        <template v-if="examUnlock.progress < 50">
+          还需 {{ Math.ceil((0.5 * items.length) - doneCount) }} 个绿色解锁期中考试
+        </template>
+        <template v-else-if="examUnlock.progress < 90">
+          🎉 期中已解锁！还需更多绿色解锁期末
+        </template>
+        <template v-else>🎉 期末已解锁！</template>
+      </div>
+    </div>
+
+    <!-- 加载 -->
+    <div v-if="isLoading" class="loading-state">
+      <el-icon class="spin"><Loading /></el-icon>
+      <p>加载大纲中...</p>
+    </div>
+
+    <!-- 大纲 -->
+    <div v-if="sections.length" class="outline-wrap">
+      <div v-for="sec in sections" :key="sec.section_id" class="section-card">
+        <div class="section-header">
+          <span class="section-num">{{ sec.section_id }}</span>
+          <div class="section-info">
+            <span class="section-title">{{ sec.section_title }}</span>
+          </div>
+          <span class="section-prog">
+            {{ sec.items.filter((i: any) => i.status === 'done').length }}/{{ sec.items.length }}
+          </span>
+        </div>
+        <div class="items-list">
+          <div v-for="item in sec.items" :key="item.id"
+            class="item-row" :class="`item--${item.status}`">
+            <div class="item-left" @click="manualToggle(item)">
+              <span class="status-dot" />
+              <div class="item-text">
+                <span class="item-title">{{ item.item_title }}</span>
+                <span class="item-desc">{{ item.item_description }}</span>
+              </div>
+            </div>
+            <div class="item-actions">
+              <el-tag size="small" :class="`tag--${item.status}`">
+                {{ { none: '未学', learning: '学习中', done: '已掌握' }[item.status] }}
+              </el-tag>
+              <el-button size="small" type="primary" plain @click="goClassroom(item)">
+                {{ item.status === 'done' ? '复习' : '上课' }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getSession, updateSyllabusItem, checkExamUnlock } from '@/api/learning'
+import { ArrowLeft, Loading } from '@element-plus/icons-vue'
+
+const route = useRoute()
+const router = useRouter()
+const sessionId = Number(route.params.sessionId)
+
+const subject = ref('')
+const items = ref<any[]>([])
+const examUnlock = ref<any>({ midterm: false, final: false, progress: 0 })
+const isLoading = ref(false)
+
+const sections = computed(() => {
+  const map: Record<string, any> = {}
+  for (const item of items.value) {
+    if (!map[item.section_id]) map[item.section_id] = {
+      section_id: item.section_id, section_title: item.section_title, items: []
+    }
+    map[item.section_id].items.push(item)
+  }
+  return Object.values(map)
+})
+
+const doneCount = computed(() => items.value.filter(i => i.status === 'done').length)
+const learningCount = computed(() => items.value.filter(i => i.status === 'learning').length)
+const noneCount = computed(() => items.value.filter(i => i.status === 'none').length)
+
+onMounted(async () => {
+  isLoading.value = true
+  try {
+    const s: any = await getSession(sessionId)
+    subject.value = s.subject
+    items.value = s.syllabus_items || []
+    examUnlock.value = s.exam_unlock || {}
+  } catch {} finally { isLoading.value = false }
+})
+
+async function manualToggle(item: any) {
+  const order = ['none', 'learning', 'done']
+  const next = order[(order.indexOf(item.status) + 1) % order.length]
+  item.status = next
+  try {
+    await updateSyllabusItem(item.id, next)
+    const unlock: any = await checkExamUnlock(sessionId)
+    examUnlock.value = unlock
+  } catch {}
+}
+
+function goClassroom(item: any) {
+  router.push(`/session/${sessionId}/classroom/${item.id}`)
+}
+
+function goExam(type: string) {
+  router.push(`/session/${sessionId}/exam/${type}`)
+}
+</script>
+
+<style scoped lang="scss">
+.session-syllabus { max-width: 880px; display: flex; flex-direction: column; gap: 16px; }
+
+.page-header {
+  display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  .header-info { flex: 1; h2 { font-size: 20px; font-weight: 800; margin: 0 0 4px; } p { font-size: 13px; color: var(--color-text-secondary); margin: 0; } }
+}
+
+.exam-buttons { display: flex; gap: 8px; flex-shrink: 0; }
+
+.overall-card {
+  background: white; border-radius: 16px; padding: 20px 24px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+}
+
+.overall-stats { display: flex; gap: 32px; margin-bottom: 12px; }
+.stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.stat-num { font-size: 26px; font-weight: 800; }
+.stat-label { font-size: 12px; color: var(--color-text-secondary); }
+.text-green { color: #67c23a; }
+.text-yellow { color: #e6a23c; }
+.text-red { color: #f56c6c; }
+
+.overall-bar {
+  height: 8px; background: #f3f4f6; border-radius: 4px; overflow: hidden;
+  display: flex; margin-bottom: 8px;
+  .segment { height: 100%; transition: width .4s; }
+  .seg-done { background: #67c23a; }
+  .seg-learning { background: #e6a23c; }
+}
+
+.unlock-hint { font-size: 13px; color: var(--color-text-secondary); }
+
+.loading-state { display: flex; flex-direction: column; align-items: center; padding: 40px; gap: 10px; }
+.spin { animation: spin 1s linear infinite; color: #8b5cf6; font-size: 36px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.outline-wrap { display: flex; flex-direction: column; gap: 10px; }
+
+.section-card {
+  background: white; border-radius: 14px; overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+}
+
+.section-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px; background: #f8fafc;
+  border-bottom: 1px solid var(--color-border-lighter);
+}
+
+.section-num {
+  width: 28px; height: 28px; border-radius: 7px;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  color: white; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+
+.section-info { flex: 1; .section-title { font-size: 14px; font-weight: 700; } }
+.section-prog { font-size: 12px; color: var(--color-text-secondary); }
+
+.items-list { padding: 6px 0; }
+
+.item-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 18px; border-bottom: 1px solid var(--color-border-extra-light);
+  transition: background .15s;
+  &:last-child { border-bottom: none; }
+
+  &.item--none { .status-dot { background: #f56c6c; } }
+  &.item--learning { background: #fffbf0; .status-dot { background: #e6a23c; } }
+  &.item--done { background: #f0fdf4; .status-dot { background: #67c23a; } }
+}
+
+.item-left {
+  display: flex; align-items: center; gap: 10px;
+  flex: 1; cursor: pointer;
+  &:hover { .item-title { color: #8b5cf6; } }
+}
+
+.status-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; transition: background .2s;
+}
+
+.item-text { .item-title { font-size: 14px; font-weight: 600; display: block; margin-bottom: 2px; color: var(--color-text-primary); transition: color .15s; } .item-desc { font-size: 12px; color: var(--color-text-secondary); } }
+
+.item-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.tag--none { background: #fef0f0 !important; color: #f56c6c !important; border-color: #fca5a5 !important; }
+.tag--learning { background: #fdf6ec !important; color: #e6a23c !important; border-color: #fcd34d !important; }
+.tag--done { background: #f0f9eb !important; color: #67c23a !important; border-color: #86efac !important; }
+</style>

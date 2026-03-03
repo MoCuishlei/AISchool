@@ -1,0 +1,32 @@
+/* KaTeX 渲染重叠与错位专项修复样式 */
+.katex {
+    font-size: 1.05em !important;
+    /* 强制重置行高，防止外部 line-height 1.8 导致公式内部垂直偏移异常 */
+    line-height: normal !important;
+    text-indent: 0 !important;
+}
+
+/* 解决根号 (sqrt) 错位问题 */
+.katex .vlist-t {
+    border-collapse: separate !important;
+}
+
+/* 修正行内公式在段落中的对齐 — text-bottom 比 middle 更自然 */
+.katex-html {
+    vertical-align: text-bottom !important;
+}
+
+/* 针对块级公式的额外留白，防止紧贴文字 */
+.katex-display {
+    margin: 1em 0 !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.3em 0;
+}
+
+/* 适配移动端或窄屏，防止公式撑破容器 */
+.katex-display>.katex {
+    white-space: normal !important;
+    display: block;
+    text-align: center;
+}

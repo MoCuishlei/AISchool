@@ -1,0 +1,383 @@
+<template>
+  <div class="assessment">
+
+    <!-- 开始前 -->
+    <div v-if="phase === 'intro'" class="intro-card">
+      <div class="intro-icon">🎯</div>
+      <h2>入学评测</h2>
+      <p>AI 将出 10 道诊断题，评估你在「{{ subject }}」各领域的基础，生成个性化学习大纲</p>
+      <ul class="tips">
+        <li>📝 题型：选择题 + 简答题</li>
+        <li>⏱️ 预计 10-15 分钟</li>
+        <li>🎯 目的是帮 AI 了解你，没有"不及格"</li>
+        <li>📸 简答题支持文字或拍照作答</li>
+      </ul>
+      <el-button v-if="!isGenerating" type="primary" size="large" @click="startAssessment" class="start-btn">
+        开始评测
+      </el-button>
+      <div v-else class="generating-progress">
+        <el-icon class="spin"><Loading /></el-icon>
+        <div class="progress-text">{{ loadingMessages[loadingIndex] }}</div>
+        <div class="progress-time">已用时 {{ loadingTime }} 秒</div>
+        <div class="stream-box" v-if="streamText">
+          <pre><code>{{ streamText }}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- 答题中 -->
+    <div v-if="phase === 'answering'" class="answering">
+      <div class="progress-header">
+        <div class="progress-info">
+          <span class="subject-tag">{{ subject }}</span>
+          <span>第 {{ currentIdx + 1 }} / {{ questions.length }} 题</span>
+        </div>
+        <el-progress :percentage="((currentIdx) / questions.length * 100)" :stroke-width="6" style="width:200px" />
+      </div>
+
+      <div class="question-card">
+        <div class="q-meta">
+          <el-tag size="small" :type="diffTag(currentQ.difficulty)">{{ currentQ.difficulty }}</el-tag>
+          <el-tag size="small" plain>{{ currentQ.domain }}</el-tag>
+        </div>
+        <div class="q-text" v-html="renderMd((currentIdx + 1) + '. ' + currentQ.question)" />
+
+        <!-- 选择题 -->
+        <div v-if="currentQ.type === 'choice'" class="choice-options">
+          <div v-for="opt in currentQ.options" :key="opt"
+            class="option" :class="{selected: answers[currentIdx] === opt[0]}"
+            @click="answers[currentIdx] = opt[0]">
+            <span v-html="renderMd(opt)" />
+          </div>
+        </div>
+
+        <!-- 简答题 -->
+        <div v-else class="open-answer">
+          <el-input v-model="answers[currentIdx]" type="textarea" :rows="4"
+            placeholder="请输入你的答案，或点击📷上传手写照片" />
+          <div class="photo-upload">
+            <label class="photo-btn">
+              📷 上传手写
+              <input type="file" accept="image/*" @change="e => handlePhoto(e, currentIdx)" hidden />
+            </label>
+            <img v-if="photoUrls[currentIdx]" :src="photoUrls[currentIdx]"
+              class="photo-preview" alt="答题图片" />
+          </div>
+        </div>
+
+        <div class="nav-row">
+          <el-button @click="currentIdx = Math.max(0, currentIdx - 1)"
+            :disabled="currentIdx === 0">← 上一题</el-button>
+          <span class="dot-nav">
+            <span v-for="(_, i) in questions" :key="i"
+              class="dot" :class="{active: i === currentIdx, answered: answers[i]}"
+              @click="currentIdx = i" />
+          </span>
+          <el-button v-if="currentIdx < questions.length - 1" type="primary"
+            @click="currentIdx++" :disabled="!answers[currentIdx]">下一题 →</el-button>
+          <el-button v-else type="success" :loading="isSubmitting"
+            @click="submitAssessment" :disabled="!allAnswered">提交评测</el-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 正在批改 -->
+    <div v-if="phase === 'evaluating'" class="evaluating-state">
+      <el-icon class="spin" style="font-size:48px;color:#8b5cf6"><Loading /></el-icon>
+      <h3>AI 正在分析你的答题情况...</h3>
+      <p>约 15-30 秒，请稍候</p>
+    </div>
+
+    <!-- 评测结果 -->
+    <div v-if="phase === 'result'" class="result-card">
+      <div class="result-header">
+        <div class="result-icon">🎉</div>
+        <h2>评测完成！</h2>
+        <p class="result-sub">AI 已分析你的基础，以下是评估报告</p>
+      </div>
+
+      <!-- AI 评语 -->
+      <div class="report-section">
+        <h3>📋 AI 评语</h3>
+        <div class="report-content" v-html="renderMd(assessmentReport)" />
+      </div>
+
+      <!-- 各领域熟练度 -->
+      <div class="proficiency-section" v-if="Object.keys(proficiency).length">
+        <h3>📊 各领域掌握程度</h3>
+        <div class="proficiency-list">
+          <div v-for="(score, domain) in proficiency" :key="domain" class="prof-item">
+            <div class="prof-label">
+              <span class="domain-name">{{ domain }}</span>
+              <span class="domain-score">{{ score }}分</span>
+            </div>
+            <el-progress
+              :percentage="score"
+              :color="score >= 70 ? '#10b981' : score >= 40 ? '#f59e0b' : '#ef4444'"
+              :stroke-width="10"
+              :show-text="false"
+            />
+          </div>
+        </div>
+      </div>
+
+      <el-button type="primary" size="large" class="goto-syllabus-btn" @click="goToSyllabus">
+        查看个性化学习大纲 →
+      </el-button>
+    </div>
+
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { startAssessmentStream, startAssessment as apiStart, submitAssessment as apiSubmit, getSession } from '@/api/learning'
+import { Loading } from '@element-plus/icons-vue'
+import { renderMd } from '@/utils/markdown'
+
+const route = useRoute()
+const router = useRouter()
+const sessionId = Number(route.params.sessionId)
+const subject = ref('')
+const phase = ref<'intro' | 'answering' | 'evaluating' | 'result'>('intro')
+const isGenerating = ref(false)
+const isSubmitting = ref(false)
+const assessmentReport = ref('')
+const proficiency = ref<Record<string, number>>({})
+
+// 动态加载状态
+const loadingMessages = ['🚀 初始化 AI 评估引擎...', '🧠 分析学科知识图谱...', '📝 自动生成诊断选择题...', '✍️ 自动生成深度简答题...', '⚖️ 校验题目难度与逻辑...']
+const loadingIndex = ref(0)
+const loadingTime = ref(0)
+let timer: any = null
+const streamText = ref('')
+
+const questions = ref<any[]>([])
+const answers = ref<string[]>([])
+const photoFiles = ref<(File | null)[]>([])
+const photoUrls = ref<string[]>([])
+const currentIdx = ref(0)
+
+const currentQ = computed(() => questions.value[currentIdx.value] || {})
+const allAnswered = computed(() => answers.value.every(a => a && a.trim()))
+
+const diffTag = (d: string) => ({ easy: 'success', medium: 'warning', hard: 'danger' }[d] || 'info')
+
+onMounted(async () => {
+  try {
+    const s: any = await getSession(sessionId)
+    subject.value = s.subject
+    // 如果已经有大纲条目，说明测评已完成，直接跳到大纲
+    if (s.syllabus_items?.length > 0) {
+      router.replace(`/session/${sessionId}/syllabus`)
+    }
+  } catch {}
+})
+
+async function startAssessment() {
+  isGenerating.value = true
+  streamText.value = ''
+  
+  // 启动动态提示定时器
+  loadingIndex.value = 0
+  loadingTime.value = 0
+  timer = setInterval(() => {
+    loadingTime.value++
+    if (loadingTime.value % 3 === 0 && loadingIndex.value < loadingMessages.length - 1) {
+      loadingIndex.value++
+    }
+  }, 1000)
+
+  try {
+    // 先尝试流式 API
+    const res: any = await startAssessmentStream(sessionId, (chunk) => {
+      streamText.value += chunk
+    })
+    if (res && res.questions && res.questions.length > 0) {
+      questions.value = res.questions
+      answers.value = new Array(questions.value.length).fill('')
+      photoFiles.value = new Array(questions.value.length).fill(null)
+      photoUrls.value = new Array(questions.value.length).fill('')
+      phase.value = 'answering'
+      return
+    }
+    // 流式返回 null 或空，回退到普通 API
+    console.warn('流式评测失败，回退到普通接口...')
+  } catch (e: any) {
+    console.warn('流式评测出错，回退到普通接口:', e)
+  }
+
+  // 回退：使用普通 API
+  try {
+    const r: any = await apiStart(sessionId)
+    questions.value = r.questions || []
+    answers.value = new Array(questions.value.length).fill('')
+    photoFiles.value = new Array(questions.value.length).fill(null)
+    photoUrls.value = new Array(questions.value.length).fill('')
+    phase.value = 'answering'
+  } catch (e2: any) {
+    console.error('评测加载失败:', e2)
+  } finally { 
+    isGenerating.value = false
+    clearInterval(timer)
+  }
+}
+
+function handlePhoto(e: Event, idx: number) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  photoFiles.value[idx] = file
+  photoUrls.value[idx] = URL.createObjectURL(file)
+  if (!answers.value[idx]) answers.value[idx] = '[图片答案]'
+}
+
+async function submitAssessment() {
+  isSubmitting.value = true
+  phase.value = 'evaluating'
+  try {
+    const result: any = await apiSubmit(sessionId, answers.value)
+    // 保存评语和熟练度
+    assessmentReport.value = result.report || ''
+    proficiency.value = result.proficiency || {}
+    // 生成大纲（后台）
+    const { generateSyllabusForSession } = await import('@/api/learning')
+    await generateSyllabusForSession(sessionId, subject.value)
+    // 显示结果页
+    phase.value = 'result'
+  } catch (e: any) {
+    console.error(e)
+    phase.value = 'answering'
+    isSubmitting.value = false
+  }
+}
+
+function goToSyllabus() {
+  router.push(`/session/${sessionId}/syllabus`)
+}
+</script>
+
+<style scoped lang="scss">
+.assessment { width: 100%; }
+
+.intro-card {
+  background: white; border-radius: 20px; padding: 48px;
+  text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,.08);
+  .intro-icon { font-size: 56px; margin-bottom: 16px; }
+  h2 { font-size: 24px; font-weight: 800; margin: 0 0 12px; }
+  p { color: var(--color-text-secondary); margin-bottom: 24px; }
+  .tips { text-align: left; display: block; max-width: 340px; margin: 0 auto 32px; li { margin-bottom: 8px; } }
+  .start-btn { height: 48px; padding: 0 40px; font-size: 16px; border-radius: 12px; background: linear-gradient(135deg, #8b5cf6, #6d28d9); border: none; }
+}
+
+.generating-progress {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  margin-top: 20px; padding: 24px; background: #f8fafc; border-radius: 12px;
+  .el-icon { font-size: 32px; color: #8b5cf6; }
+  .progress-text { font-size: 16px; font-weight: 600; color: #1e293b; transition: all 0.3s; }
+  .progress-time { font-size: 13px; color: #64748b; }
+  .stream-box { 
+    width: 100%; max-height: 200px; overflow-y: auto; text-align: left;
+    background: #1e293b; color: #10b981; padding: 12px; border-radius: 8px;
+    font-family: monospace; font-size: 13px; line-height: 1.4;
+    white-space: pre-wrap; word-wrap: break-word;
+    margin-top: 12px;
+    pre { margin: 0; }
+  }
+}
+
+.progress-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px;
+  .progress-info { display: flex; align-items: center; gap: 12px; }
+  .subject-tag { background: #ede9fe; color: #6d28d9; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+}
+
+.question-card {
+  background: white; border-radius: 16px; padding: 32px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  .q-meta { display: flex; gap: 8px; margin-bottom: 16px; }
+  .q-text { font-size: 17px; font-weight: 600; line-height: 1.6; margin-bottom: 24px; }
+}
+
+.choice-options { display: flex; flex-direction: column; gap: 10px; }
+.option {
+  padding: 14px 18px; border-radius: 10px; border: 2px solid var(--color-border-lighter);
+  cursor: pointer; transition: all .15s; font-size: 15px;
+  &:hover { border-color: #8b5cf6; background: #f5f3ff; }
+  &.selected { border-color: #8b5cf6; background: #ede9fe; font-weight: 600; }
+}
+
+.open-answer { .el-input { margin-bottom: 10px; } }
+.photo-upload { display: flex; align-items: center; gap: 12px; }
+.photo-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px;
+  border-radius: 8px; border: 1px dashed #8b5cf6; color: #8b5cf6;
+  cursor: pointer; font-size: 13px; &:hover { background: #f5f3ff; }
+}
+.photo-preview { width: 80px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd; }
+
+.nav-row { display: flex; justify-content: space-between; align-items: center; margin-top: 28px; }
+.dot-nav { display: flex; gap: 6px; }
+.dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #e5e7eb; cursor: pointer; transition: all .15s;
+  &.active { background: #8b5cf6; transform: scale(1.3); }
+  &.answered { background: #67c23a; }
+}
+
+.evaluating-state {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 80px; text-align: center;
+  h3 { font-size: 20px; font-weight: 700; }
+  p { color: var(--color-text-secondary); }
+}
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 评测结果页 ── */
+.result-card {
+  background: white; border-radius: 20px; padding: 40px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.08);
+  display: flex; flex-direction: column; gap: 28px;
+}
+
+.result-header {
+  text-align: center;
+  .result-icon { font-size: 56px; margin-bottom: 12px; }
+  h2 { font-size: 26px; font-weight: 800; margin: 0 0 8px; }
+  .result-sub { color: var(--color-text-secondary); margin: 0; }
+}
+
+.report-section {
+  background: #f8fafc; border-radius: 14px; padding: 24px;
+  h3 { font-size: 16px; font-weight: 700; color: #1e293b; margin: 0 0 14px; }
+  .report-content {
+    font-size: 15px; line-height: 1.8; color: #374151;
+    :deep(p) { margin: 6px 0; }
+    :deep(strong) { color: #1e40af; }
+    :deep(ul), :deep(ol) { padding-left: 1.4em; margin: 8px 0; }
+  }
+}
+
+.proficiency-section {
+  h3 { font-size: 16px; font-weight: 700; color: #1e293b; margin: 0 0 16px; }
+}
+
+.proficiency-list { display: flex; flex-direction: column; gap: 12px; }
+
+.prof-item {
+  .prof-label {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+    .domain-name { font-size: 14px; font-weight: 500; color: #374151; }
+    .domain-score { font-size: 14px; font-weight: 700; color: #6d28d9; }
+  }
+}
+
+.goto-syllabus-btn {
+  height: 52px; font-size: 16px; border-radius: 14px; align-self: center;
+  padding: 0 48px;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9); border: none;
+}
+</style>
