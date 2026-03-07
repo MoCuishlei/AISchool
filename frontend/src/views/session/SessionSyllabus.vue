@@ -85,7 +85,7 @@
             </div>
             <div class="item-actions">
               <el-tag size="small" :class="`tag--${item.status}`">
-                {{ { none: '未学', learning: '学习中', done: '已掌握' }[item.status] }}
+                {{ (({ none: '未学', learning: '学习中', done: '已掌握' } as any)[item.status]) }}
               </el-tag>
               <el-button size="small" type="primary" plain @click="goClassroom(item)">
                 {{ item.status === 'done' ? '复习' : '上课' }}

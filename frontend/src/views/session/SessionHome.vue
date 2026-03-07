@@ -72,7 +72,14 @@ const sessions = ref<any[]>([])
 const hotSubjects = ['Python 编程', '机器学习', '高中数学', '英语语法', '数据结构', '操作系统']
 
 const statusLabel = (s: string) => ({ assessing: '测评中', learning: '学习中', finished: '已完成' }[s] || s)
-const statusTag = (s: string) => ({ assessing: 'warning', learning: 'primary', finished: 'success' }[s] || 'info')
+const statusTag = (s: string): "success" | "warning" | "info" | "primary" | "danger" => {
+  const map: Record<string, "success" | "warning" | "info" | "primary" | "danger"> = {
+    assessing: 'warning',
+    learning: 'primary',
+    finished: 'success'
+  }
+  return map[s] || 'info'
+}
 const progressColor = (p: number) => p < 30 ? '#f56c6c' : p < 70 ? '#e6a23c' : '#67c23a'
 const formatDate = (d: string) => d ? new Date(d).toLocaleDateString('zh-CN') : ''
 
