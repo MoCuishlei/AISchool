@@ -152,7 +152,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getSession, startAssessmentStream, startAssessment as apiStart, submitAssessment as apiSubmit, saveAssessmentAnswers } from '@/api/learning'
-import { ArrowLeft, Clock, Loading, Check, Histogram, Collection, Opportunity, CaretLeft, CaretRight, Promotion } from '@element-plus/icons-vue'
+import { ArrowLeft, Loading } from '@element-plus/icons-vue'
 import { renderMd } from '@/utils/markdown'
 
 const route = useRoute()

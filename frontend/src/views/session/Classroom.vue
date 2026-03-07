@@ -187,13 +187,16 @@ import { getSession, startLesson, askQuestion as apiAsk, startQuiz as apiStartQu
 import { ArrowLeft, Loading, Delete, Clock } from '@element-plus/icons-vue'
 
 const route = useRoute()
-const router = useRouter()
 const sessionId = Number(route.params.sessionId)
 const itemDbId = Number(route.params.itemId)
 
 const phase = ref<'lesson' | 'quiz' | 'result'>('lesson')
 const phaseLabel: Record<string, string> = { lesson: '上课中', quiz: '小测验', result: '测验结果' }
-const phaseTag: Record<string, string> = { lesson: 'primary', quiz: 'warning', result: '' }
+const phaseTag: Record<string, "primary" | "warning" | "success" | "info" | "danger"> = {
+  lesson: 'primary',
+  quiz: 'warning',
+  result: 'success'
+}
 
 const sessionSubject = ref('')
 const itemTitle = ref('')
