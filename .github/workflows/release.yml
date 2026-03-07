@@ -1,12 +1,18 @@
 name: Release AI School
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
         description: 'Release Version (e.g. v1.0.0)'
         required: true
-        default: 'v1.0.0'
+        default: 'v1.1.0'
+
+env:
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:
   release:
@@ -40,7 +46,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/aischool-backend:latest
-            ghcr.io/${{ github.repository_owner }}/aischool-backend:${{ github.event.inputs.version }}
+            ghcr.io/${{ github.repository_owner }}/aischool-backend:${{ env.VERSION }}
 
       # 2. 构建前端镜像
       - name: Build and Push Frontend Image
@@ -51,7 +57,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/aischool-frontend:latest
-            ghcr.io/${{ github.repository_owner }}/aischool-frontend:${{ github.event.inputs.version }}
+            ghcr.io/${{ github.repository_owner }}/aischool-frontend:${{ env.VERSION }}
 
       # 3. 构建一体化 Standalone 镜像
       - name: Build and Push Standalone Image
@@ -62,41 +68,42 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/aischool-standalone:latest
-            ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ github.event.inputs.version }}
+            ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ env.VERSION }}
 
       # 4. 打包镜像为离线文件 (.tar.gz)
       - name: Save Docker Images as Artifacts
         run: |
-          docker pull ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ github.event.inputs.version }}
+          docker pull ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ env.VERSION }}
           docker save \
-            ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ github.event.inputs.version }} \
-            | gzip > aischool-standalone-${{ github.event.inputs.version }}.tar.gz
+            ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ env.VERSION }} \
+            | gzip > aischool-standalone-${{ env.VERSION }}.tar.gz
 
-      # 4. 创建 Git Tag 并提交 (如果不存在)
+      # 5. 创建 Git Tag 并提交 (仅手动触发时)
       - name: Create Git Tag
+        if: github.event_name == 'workflow_dispatch'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a ${{ github.event.inputs.version }} -m "Release ${{ github.event.inputs.version }}"
-          git push origin ${{ github.event.inputs.version }}
+          git tag -a ${{ env.VERSION }} -m "Release ${{ env.VERSION }}"
+          git push origin ${{ env.VERSION }}
 
       # 5. 创建 GitHub Release 并上传附件
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: Release ${{ github.event.inputs.version }}
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
           files: |
-            aischool-standalone-${{ github.event.inputs.version }}.tar.gz
+            aischool-standalone-${{ env.VERSION }}.tar.gz
             docker-compose.yml
             .env.example
           body: |
-            AI School ${{ github.event.inputs.version }} 发布包。
+            AI School ${{ env.VERSION }} 发布包。
             
             ### Standalone 模式 (推荐)
-            1. 下载 `aischool-standalone-${{ github.event.inputs.version }}.tar.gz`。
-            2. 运行 `docker load -i aischool-standalone-${{ github.event.inputs.version }}.tar.gz` 加载镜像。
-            3. 直接启动：`docker run -d -p 8000:8000 --name aischool-app ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ github.event.inputs.version }}`。
+            1. 下载 `aischool-standalone-${{ env.VERSION }}.tar.gz`。
+            2. 运行 `docker load -i aischool-standalone-${{ env.VERSION }}.tar.gz` 加载镜像。
+            3. 直接启动：`docker run -d -p 8000:8000 --name aischool-app ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ env.VERSION }}`。
             
             ### Docker Compose 模式 (适合生产/集群)
             1. 下载所有附件。
