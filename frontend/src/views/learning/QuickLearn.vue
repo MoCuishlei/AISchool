@@ -98,7 +98,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLearningStore } from '@/stores/learning'
-import { Lightning, Reading, Loading, CopyDocument, EditPen, ArrowLeft } from '@element-plus/icons-vue'
+import { Lightning, Reading, Loading, CopyDocument, EditPen } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { renderMd } from '@/utils/markdown'
 

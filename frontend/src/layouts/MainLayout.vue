@@ -42,7 +42,7 @@
           />
         </div>
         <button class="collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed">
-          <el-icon><component :is="sidebarCollapsed ? 'Expand' : 'Fold'" /></el-icon>
+          <el-icon><component :is="sidebarCollapsed ? Expand : Fold" /></el-icon>
         </button>
       </div>
     </aside>
@@ -101,7 +101,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { useLearningStore } from '@/stores/learning'
 import {
-  Reading, Odometer, Lightning, EditPen,
+  Reading, Odometer, EditPen,
   Fold, Expand, CircleCheck, CircleClose, Sunny, Moon, School, List,
   Setting, Document
 } from '@element-plus/icons-vue'
@@ -118,12 +118,12 @@ const sidebarMobileVisible = ref(false)
 const sessions = ref<any[]>([])
 
 const navItems = [
-  { path: '/my-courses', label: '学习中心', icon: 'School', sub: 'Study Hub' },
-  { path: '/dashboard', label: '学情看板', icon: 'Odometer', sub: 'Analytics' },
-  { path: '/syllabus', label: '学习大纲', icon: 'List', sub: 'Syllabus' },
-  { path: '/practice', label: '探索练习', icon: 'EditPen', sub: 'Practice' },
-  { path: '/settings/config', label: '模型配置', icon: 'Setting', sub: 'LLM Config' },
-  { path: '/docs/api', label: 'API 文档', icon: 'Document', sub: 'Docs' },
+  { path: '/my-courses', label: '学习中心', icon: School, sub: 'Study Hub' },
+  { path: '/dashboard', label: '学情看板', icon: Odometer, sub: 'Analytics' },
+  { path: '/syllabus', label: '学习大纲', icon: List, sub: 'Syllabus' },
+  { path: '/practice', label: '探索练习', icon: EditPen, sub: 'Practice' },
+  { path: '/settings/config', label: '模型配置', icon: Setting, sub: 'LLM Config' },
+  { path: '/docs/api', label: 'API 文档', icon: Document, sub: 'Docs' },
 ]
 
 const currentTitle = computed(() => {

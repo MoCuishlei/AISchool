@@ -152,7 +152,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getSession, startAssessmentStream, startAssessment as apiStart, submitAssessment as apiSubmit, saveAssessmentAnswers } from '@/api/learning'
-import { ArrowLeft, Loading } from '@element-plus/icons-vue'
+import { Loading } from '@element-plus/icons-vue'
 import { renderMd } from '@/utils/markdown'
 
 const route = useRoute()
@@ -187,7 +187,14 @@ const currentIdx = ref(0)
 const currentQ = computed(() => questions.value[currentIdx.value] || {})
 const allAnswered = computed(() => answers.value.every(a => a && a.trim()))
 
-const diffTag = (d: string) => ({ easy: 'success', medium: 'warning', hard: 'danger' }[d] || 'info')
+const diffTag = (d: string): "success" | "warning" | "danger" | "info" => {
+  const map: Record<string, "success" | "warning" | "danger" | "info"> = {
+    easy: 'success',
+    medium: 'warning',
+    hard: 'danger'
+  }
+  return map[d] || 'info'
+}
 
 onMounted(async () => {
   try {

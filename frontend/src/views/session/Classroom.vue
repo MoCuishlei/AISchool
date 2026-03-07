@@ -182,7 +182,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { getSession, startLesson, askQuestion as apiAsk, startQuiz as apiStartQuiz, startQuizStream, submitQuiz as apiSubmitQuiz, getSessionQuizzes } from '@/api/learning'
 import { ArrowLeft, Loading, Delete, Clock } from '@element-plus/icons-vue'
 

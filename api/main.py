@@ -806,26 +806,5 @@ def get_dashboard_analytics(session_id: int, db: Session = Depends(get_db)):
     }
 
 
-# ─── 静态文件托管 (All-in-One 模式) ───────────────────────────
-# 注意：这部分逻辑应放在所有 API 路由之后
-static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-
-@app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    """支持 Vue SPA 的静态文件及路由"""
-    # 如果路径包含扩展名，尝试作为常规文件返回
-    file_path = os.path.join(static_dir, full_path)
-    if os.path.isfile(file_path):
-        return FileResponse(file_path)
-    
-    # 否则默认返回 index.html (处理前端路由)
-    index_file = os.path.join(static_dir, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
-    
-    # 如果 static 目录没东西，返回 404
-    return {"detail": "Not Found", "info": "Static directory is empty or index.html missing"}
-
-
 if __name__ == "__main__":
-    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

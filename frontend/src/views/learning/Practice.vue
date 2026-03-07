@@ -98,11 +98,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLearningStore } from '@/stores/learning'
-import { EditPen, Loading, CopyDocument, ArrowLeft } from '@element-plus/icons-vue'
+import { EditPen, Loading, CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
-const router = useRouter()
 const learningStore = useLearningStore()
 const topic = ref('')
 const difficulty = ref<'easy' | 'medium' | 'hard'>('medium')

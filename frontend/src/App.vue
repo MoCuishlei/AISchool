@@ -21,7 +21,7 @@
     <!-- 路由视图 -->
     <router-view v-slot="{ Component, route }">
       <transition
-        :name="route.meta.transition || 'fade'"
+        :name="(route.meta.transition as string) || 'fade'"
         mode="out-in"
         @before-enter="onBeforeEnter"
         @after-enter="onAfterEnter"
@@ -86,7 +86,6 @@ import {
   CircleCloseFilled
 } from '@element-plus/icons-vue'
 
-const route = useRoute()
 const appStore = useAppStore()
 const notificationStore = useNotificationStore()
 const themeStore = useThemeStore()
