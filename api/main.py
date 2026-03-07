@@ -6,13 +6,15 @@ from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Any
-import uvicorn, os, base64
+import uvicorn, os, base64, traceback
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+import json
 
 from db.database import get_db, create_tables
 from db import crud
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from core.direct_llm import direct_teach, direct_practice, generate_syllabus
 from core.assessment_llm import generate_assessment_questions, evaluate_assessment, generate_assessment_questions_stream
 from core.classroom_llm import start_lesson, ask_question, generate_mini_quiz, evaluate_quiz, generate_mini_quiz_stream
@@ -81,12 +83,24 @@ def get_session_api(session_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "会话不存在")
     items = crud.get_syllabus_items(db, session_id)
     unlock = crud.get_exam_unlock_status(db, session_id)
+    
+    # 获取未完成的测评记录（如果有）
+    assessment_info = None
+    record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
+    if record and not record.completed:
+        assessment_info = {
+            "id": record.id,
+            "has_questions": bool(record.questions),
+            "answers_count": len(record.answers) if record.answers else 0
+        }
+
     return {
         "session_id": session.id,
         "subject": session.subject,
         "status": session.status,
         "progress_pct": session.progress_pct,
         "proficiency_data": session.proficiency_data,
+        "assessment": assessment_info,
         "syllabus_items": [
             {"id": i.id, "section_id": i.section_id, "section_title": i.section_title,
              "item_id": i.item_id, "item_title": i.item_title,
@@ -114,6 +128,14 @@ def get_student_sessions_api(student_name: str, db: Session = Depends(get_db)):
     }
 
 
+@app.delete("/session/{session_id}")
+def delete_session_api(session_id: int, db: Session = Depends(get_db)):
+    success = crud.delete_session(db, session_id)
+    if not success:
+        raise HTTPException(404, "会话不存在或已删除")
+    return {"status": "success", "session_id": session_id}
+
+
 # ════════════════════════════════════════════════════════
 # 入学测评
 # ════════════════════════════════════════════════════════
@@ -123,6 +145,19 @@ def start_assessment(session_id: int, db: Session = Depends(get_db)):
     session = crud.get_session(db, session_id)
     if not session:
         raise HTTPException(404, "会话不存在")
+        
+    # 检查是否存在未完成的测评
+    existing_record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
+    if existing_record and not existing_record.completed and existing_record.questions:
+        return {
+            "assessment_id": existing_record.id,
+            "session_id": session_id,
+            "subject": session.subject,
+            "questions": existing_record.questions,
+            "answers": existing_record.answers or [],
+            "total": len(existing_record.questions),
+        }
+        
     questions = generate_assessment_questions(session.subject, count=10)
     if not questions:
         raise HTTPException(500, "生成题目失败，请重试")
@@ -140,6 +175,21 @@ def start_assessment_stream(session_id: int, db: Session = Depends(get_db)):
     session = crud.get_session(db, session_id)
     if not session:
         raise HTTPException(404, "会话不存在")
+        
+    # 断线重连：如果在这个 session_id 下已经有未完成的评测记录
+    existing_record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
+    if existing_record and not existing_record.completed and existing_record.questions:
+        # 直接由生成器立即返回完整的原有数据，不再请求大模型
+        def quick_stream():
+            event = {
+                "status": "done",
+                "questions": existing_record.questions,
+                "answers": existing_record.answers or [],
+                "assessment_id": existing_record.id,
+                "total": len(existing_record.questions)
+            }
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        return StreamingResponse(quick_stream(), media_type="text/event-stream")
     
     subject = session.subject  # 提前取出，避免在生成器内依赖外部 Session
 
@@ -157,6 +207,7 @@ def start_assessment_stream(session_id: int, db: Session = Depends(get_db)):
                         event["total"] = len(questions)
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
+            traceback.print_exc()
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
         finally:
             stream_db.close()
@@ -177,13 +228,14 @@ def submit_assessment(session_id: int, req: SubmitAssessmentRequest, db: Session
     if not record:
         raise HTTPException(404, "测评记录不存在，请先调用 /assessment/start")
 
-    proficiency, report = evaluate_assessment(session.subject, record.questions, req.answers)
-    record = crud.complete_assessment(db, session_id, req.answers, proficiency, report)
+    proficiency, report, overall_score = evaluate_assessment(session.subject, record.questions, req.answers)
+    record = crud.complete_assessment(db, session_id, req.answers, proficiency, report, overall_score)
 
     return {
         "session_id": session_id,
         "proficiency": proficiency,
         "report": report,
+        "overall_score": overall_score
     }
 
 
@@ -228,6 +280,22 @@ def update_item_status(item_db_id: int, req: UpdateItemStatusRequest,
     updated = crud.update_item_status(db, item.session_id, item_db_id, req.status, req.mastery_score)
     progress = crud.update_session_progress(db, item.session_id)
     return {"item_id": item_db_id, "status": updated.status, "progress_pct": progress}
+
+
+@app.post("/assessment/save_answers/{session_id}")
+def save_assessment_answers(session_id: int, req: dict, db: Session = Depends(get_db)):
+    """保存测评进度（中间答案）"""
+    record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
+    if not record:
+        raise HTTPException(404, "测评记录不存在")
+    if record.completed:
+        raise HTTPException(400, "测评已完成，无法修改答案")
+    
+    # 获取前端传来的 answers 数组
+    answers = req.get("answers", [])
+    record.answers = answers
+    db.commit()
+    return {"status": "success", "session_id": session_id}
 
 
 # ════════════════════════════════════════════════════════
@@ -390,6 +458,7 @@ def classroom_start_quiz_stream(session_id: int, req: StartQuizRequest, db: Sess
                         event["attempt_number"] = attempt_number
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
+            traceback.print_exc()
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
         finally:
             stream_db.close()
@@ -442,8 +511,64 @@ async def classroom_submit_quiz(
     }
 
 
+@app.get("/session/{session_id}/quizzes")
+def get_session_quizzes(session_id: int, db: Session = Depends(get_db)):
+    session = crud.get_session(db, session_id)
+    if not session:
+        raise HTTPException(404, "会话不存在")
+    
+    quizzes = db.query(crud.QuizRecord).filter(
+        crud.QuizRecord.session_id == session_id,
+        crud.QuizRecord.passed.isnot(None) # completed quizzes
+    ).order_by(crud.QuizRecord.created_at.desc()).all()
+    
+    quiz_list = [
+        {
+            "id": q.id,
+            "type": "quiz",
+            "item_id": q.item_id,
+            "item_title": q.item_title,
+            "questions": q.questions,
+            "answers": q.answers,
+            "score": q.score,
+            "passed": q.passed,
+            "ai_feedback": q.ai_feedback,
+            "attempt_number": q.attempt_number,
+            "created_at": q.created_at.isoformat() if q.created_at else None
+        } for q in quizzes
+    ]
+
+    # 加入入学测评记录
+    assessment = db.query(crud.AssessmentRecord).filter(
+        crud.AssessmentRecord.session_id == session_id,
+        crud.AssessmentRecord.completed == True
+    ).first()
+
+    if assessment:
+        quiz_list.append({
+            "id": assessment.id,
+            "type": "assessment",
+            "item_title": "入学诊断测试",
+            "questions": assessment.questions,
+            "answers": assessment.answers,
+            "score": assessment.proficiency_result.get("__overall__", 0) if assessment.proficiency_result else 0,
+            "passed": True,
+            "ai_feedback": assessment.learning_report,
+            "attempt_number": 1,
+            "created_at": assessment.created_at.isoformat() if assessment.created_at else None
+        })
+
+    # 重新按时间排序，确保入学测试在正确位置或按需排序
+    # 这里我们保持倒序，入学测试通常是最后（最早）的一个
+    
+    return {
+        "session_id": session_id,
+        "quizzes": quiz_list
+    }
+
+
 # ════════════════════════════════════════════════════════
-# 考试
+# 期中/期末考试
 # ════════════════════════════════════════════════════════
 
 @app.get("/exam/unlock-check/{session_id}")
@@ -504,17 +629,22 @@ def exam_generate_stream(session_id: int, req: GenerateExamRequest, db: Session 
         covered = [i.item_title for i in items]
 
     def event_stream():
-        for event in generate_exam_stream(session.subject, covered, req.exam_type):
-            if event["status"] == "done":
-                questions = event.get("questions", [])
-                if questions:
-                    record = crud.create_exam(db, session_id, req.exam_type, covered, questions)
-                    event["exam_id"] = record.id
-                    event["exam_type"] = req.exam_type
-                    event["subject"] = session.subject
-                    event["covered_count"] = len(covered)
-                    event["total"] = len(questions)
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        try:
+            for event in generate_exam_stream(session.subject, covered, req.exam_type):
+                if event["status"] == "done":
+                    questions = event.get("questions", [])
+                    if questions:
+                        record = crud.create_exam(db, session_id, req.exam_type, covered, questions)
+                        event["exam_id"] = record.id
+                        event["exam_type"] = req.exam_type
+                        event["subject"] = session.subject
+                        event["covered_count"] = len(covered)
+                        event["total"] = len(questions)
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            traceback.print_exc()
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -578,6 +708,60 @@ class SyllabusRequest(BaseModel):
     topic: str
 
 
+class ConfigSaveRequest(BaseModel):
+    key: str
+    value: str
+    description: Optional[str] = None
+
+
+class ConfigTestRequest(BaseModel):
+    llm_base_url: str
+    llm_api_key: str
+    llm_model_name: str
+
+
+@app.get("/config")
+def get_configs(db: Session = Depends(get_db)):
+    """获取所有配置"""
+    configs = crud.get_all_configs(db)
+    return {"configs": configs}
+
+
+@app.post("/config/save")
+def save_config(req: ConfigSaveRequest, db: Session = Depends(get_db)):
+    """保存或更新配置"""
+    crud.set_config(db, req.key, req.value, req.description)
+    return {"status": "ok"}
+
+
+@app.post("/config/test")
+def test_llm_config(req: ConfigTestRequest):
+    """测试 LLM 配置是否可用 (真实调用)"""
+    from openai import OpenAI
+    try:
+        client = OpenAI(
+            api_key=req.llm_api_key,
+            base_url=req.llm_base_url
+        )
+        # 发起一个极其简单的对话请求
+        response = client.chat.completions.create(
+            model=req.llm_model_name,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=5
+        )
+        content = response.choices[0].message.content
+        return {"status": "ok", "message": f"连接成功！模型响应: {content}"}
+    except Exception as e:
+        error_msg = str(e)
+        # 简化一些常见的错误信息
+        if "api_key" in error_msg.lower():
+            error_msg = "API Key 错误或无效"
+        elif "base_url" in error_msg.lower():
+            error_msg = "Base URL 格式错误或无法访问"
+        
+        raise HTTPException(status_code=400, detail=f"连接失败: {error_msg}")
+
+
 @app.post("/learning/syllabus")
 def syllabus_standalone(req: SyllabusRequest):
     try:
@@ -585,6 +769,62 @@ def syllabus_standalone(req: SyllabusRequest):
         return {"topic": req.topic, "syllabus": data}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.get("/analytics/dashboard/{session_id}")
+def get_dashboard_analytics(session_id: int, db: Session = Depends(get_db)):
+    session = crud.get_session(db, session_id)
+    if not session:
+        raise HTTPException(404, "会话不存在")
+    
+    # 1. 趋势数据 (Trend): 获取所有已通过的测验分数
+    quizzes = db.query(crud.QuizRecord).filter(
+        crud.QuizRecord.session_id == session_id,
+        crud.QuizRecord.passed == True
+    ).order_by(crud.QuizRecord.created_at.asc()).all()
+    
+    trend = [
+        {"date": q.created_at.isoformat() if q.created_at else None, "score": q.score, "item": q.item_title}
+        for q in quizzes
+    ]
+    
+    # 2. 掌握度分布 (Mastery Distribution): 从 session.proficiency_data 提取
+    mastery_dist = session.proficiency_data or {}
+    
+    # 3. 考分预测 (Projection)
+    avg_score = sum([q.score for q in quizzes]) / len(quizzes) if quizzes else 60
+    # 加权计算：平均分 * 0.7 + 过程活跃度等
+    projected_score = min(100, avg_score * 0.8 + (session.progress_pct or 0) * 0.3)
+    
+    return {
+        "session_id": session_id,
+        "subject": session.subject,
+        "progress": session.progress_pct,
+        "trend": trend,
+        "mastery_distribution": mastery_dist,
+        "projected_score": round(projected_score, 1)
+    }
+
+
+# ─── 静态文件托管 (All-in-One 模式) ───────────────────────────
+# 注意：这部分逻辑应放在所有 API 路由之后
+static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """支持 Vue SPA 的静态文件及路由"""
+    # 如果路径包含扩展名，尝试作为常规文件返回
+    file_path = os.path.join(static_dir, full_path)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    
+    # 否则默认返回 index.html (处理前端路由)
+    index_file = os.path.join(static_dir, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+    
+    # 如果 static 目录没东西，返回 404
+    return {"detail": "Not Found", "info": "Static directory is empty or index.html missing"}
 
 
 if __name__ == "__main__":

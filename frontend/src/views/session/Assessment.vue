@@ -13,15 +13,12 @@
         <li>📸 简答题支持文字或拍照作答</li>
       </ul>
       <el-button v-if="!isGenerating" type="primary" size="large" @click="startAssessment" class="start-btn">
-        开始评测
+        {{ hasPreviousProgress ? '继续评测' : '开始评测' }}
       </el-button>
       <div v-else class="generating-progress">
         <el-icon class="spin"><Loading /></el-icon>
         <div class="progress-text">{{ loadingMessages[loadingIndex] }}</div>
         <div class="progress-time">已用时 {{ loadingTime }} 秒</div>
-        <div class="stream-box" v-if="streamText">
-          <pre><code>{{ streamText }}</code></pre>
-        </div>
       </div>
     </div>
 
@@ -46,7 +43,7 @@
         <div v-if="currentQ.type === 'choice'" class="choice-options">
           <div v-for="opt in currentQ.options" :key="opt"
             class="option" :class="{selected: answers[currentIdx] === opt[0]}"
-            @click="answers[currentIdx] = opt[0]">
+            @click="answers[currentIdx] = opt[0]; autoSave()">
             <span v-html="renderMd(opt)" />
           </div>
         </div>
@@ -54,7 +51,7 @@
         <!-- 简答题 -->
         <div v-else class="open-answer">
           <el-input v-model="answers[currentIdx]" type="textarea" :rows="4"
-            placeholder="请输入你的答案，或点击📷上传手写照片" />
+            placeholder="请输入你的答案，或点击📷上传手写照片" @blur="autoSave" />
           <div class="photo-upload">
             <label class="photo-btn">
               📷 上传手写
@@ -74,7 +71,7 @@
               @click="currentIdx = i" />
           </span>
           <el-button v-if="currentIdx < questions.length - 1" type="primary"
-            @click="currentIdx++" :disabled="!answers[currentIdx]">下一题 →</el-button>
+            @click="currentIdx++; autoSave()" :disabled="!answers[currentIdx]">下一题 →</el-button>
           <el-button v-else type="success" :loading="isSubmitting"
             @click="submitAssessment" :disabled="!allAnswered">提交评测</el-button>
         </div>
@@ -96,6 +93,26 @@
         <p class="result-sub">AI 已分析你的基础，以下是评估报告</p>
       </div>
 
+      <!-- 各领域熟练度 -->
+      <div class="result-brief">
+        <div class="score-box">
+          <div class="score-circle">
+            <span class="score-num">{{ overallScore }}</span>
+            <span class="score-unit">综合评分</span>
+          </div>
+        </div>
+        <div class="result-meta">
+          <div class="meta-item">
+            <span class="label">测评题目</span>
+            <span class="val">{{ questions.length }} 道</span>
+          </div>
+          <div class="meta-item">
+            <span class="label">核心考点</span>
+            <span class="val">{{ Object.keys(proficiency).filter(k => k !== '__overall__').length }} 个</span>
+          </div>
+        </div>
+      </div>
+
       <!-- AI 评语 -->
       <div class="report-section">
         <h3>📋 AI 评语</h3>
@@ -103,21 +120,23 @@
       </div>
 
       <!-- 各领域熟练度 -->
-      <div class="proficiency-section" v-if="Object.keys(proficiency).length">
+      <div class="proficiency-section" v-if="filteredProficiencyCount">
         <h3>📊 各领域掌握程度</h3>
         <div class="proficiency-list">
-          <div v-for="(score, domain) in proficiency" :key="domain" class="prof-item">
-            <div class="prof-label">
-              <span class="domain-name">{{ domain }}</span>
-              <span class="domain-score">{{ score }}分</span>
+          <template v-for="(score, domain) in proficiency" :key="domain">
+            <div v-if="domain !== '__overall__'" class="prof-item">
+              <div class="prof-label">
+                <span class="domain-name">{{ domain }}</span>
+                <span class="domain-score">{{ score }}分</span>
+              </div>
+              <el-progress
+                :percentage="score"
+                :color="score >= 70 ? '#10b981' : score >= 40 ? '#f59e0b' : '#ef4444'"
+                :stroke-width="10"
+                :show-text="false"
+              />
             </div>
-            <el-progress
-              :percentage="score"
-              :color="score >= 70 ? '#10b981' : score >= 40 ? '#f59e0b' : '#ef4444'"
-              :stroke-width="10"
-              :show-text="false"
-            />
-          </div>
+          </template>
         </div>
       </div>
 
@@ -132,8 +151,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { startAssessmentStream, startAssessment as apiStart, submitAssessment as apiSubmit, getSession } from '@/api/learning'
-import { Loading } from '@element-plus/icons-vue'
+import { getSession, startAssessmentStream, startAssessment as apiStart, submitAssessment as apiSubmit, saveAssessmentAnswers } from '@/api/learning'
+import { ArrowLeft, Clock, Loading, Check, Histogram, Collection, Opportunity, CaretLeft, CaretRight, Promotion } from '@element-plus/icons-vue'
 import { renderMd } from '@/utils/markdown'
 
 const route = useRoute()
@@ -145,6 +164,12 @@ const isGenerating = ref(false)
 const isSubmitting = ref(false)
 const assessmentReport = ref('')
 const proficiency = ref<Record<string, number>>({})
+const overallScore = ref(0)
+const hasPreviousProgress = ref(false)
+
+const filteredProficiencyCount = computed(() => 
+  Object.keys(proficiency.value).filter(k => k !== '__overall__').length
+)
 
 // 动态加载状态
 const loadingMessages = ['🚀 初始化 AI 评估引擎...', '🧠 分析学科知识图谱...', '📝 自动生成诊断选择题...', '✍️ 自动生成深度简答题...', '⚖️ 校验题目难度与逻辑...']
@@ -171,6 +196,11 @@ onMounted(async () => {
     // 如果已经有大纲条目，说明测评已完成，直接跳到大纲
     if (s.syllabus_items?.length > 0) {
       router.replace(`/session/${sessionId}/syllabus`)
+      return
+    }
+    // 检查是否有未完成的进度
+    if (s.assessment && s.assessment.has_questions) {
+      hasPreviousProgress.value = true
     }
   } catch {}
 })
@@ -196,7 +226,13 @@ async function startAssessment() {
     })
     if (res && res.questions && res.questions.length > 0) {
       questions.value = res.questions
+      // 这里的 answers 如果后端返回了（断点续传），就用原来的；没有就新建空数组
+      const restoredAnswers = res.answers || []
       answers.value = new Array(questions.value.length).fill('')
+      restoredAnswers.forEach((val: string, idx: number) => {
+        if (idx < answers.value.length) answers.value[idx] = val
+      })
+      
       photoFiles.value = new Array(questions.value.length).fill(null)
       photoUrls.value = new Array(questions.value.length).fill('')
       phase.value = 'answering'
@@ -212,7 +248,13 @@ async function startAssessment() {
   try {
     const r: any = await apiStart(sessionId)
     questions.value = r.questions || []
+    
+    const restoredAnswers = r.answers || []
     answers.value = new Array(questions.value.length).fill('')
+    restoredAnswers.forEach((val: string, idx: number) => {
+      if (idx < answers.value.length) answers.value[idx] = val
+    })
+
     photoFiles.value = new Array(questions.value.length).fill(null)
     photoUrls.value = new Array(questions.value.length).fill('')
     phase.value = 'answering'
@@ -224,12 +266,21 @@ async function startAssessment() {
   }
 }
 
+async function autoSave() {
+  try {
+    await saveAssessmentAnswers(sessionId, answers.value)
+  } catch (e) {
+    console.warn('Auto-save failed:', e)
+  }
+}
+
 function handlePhoto(e: Event, idx: number) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   photoFiles.value[idx] = file
   photoUrls.value[idx] = URL.createObjectURL(file)
   if (!answers.value[idx]) answers.value[idx] = '[图片答案]'
+  autoSave()
 }
 
 async function submitAssessment() {
@@ -240,6 +291,7 @@ async function submitAssessment() {
     // 保存评语和熟练度
     assessmentReport.value = result.report || ''
     proficiency.value = result.proficiency || {}
+    overallScore.value = result.overall_score || proficiency.value['__overall__'] || 0
     // 生成大纲（后台）
     const { generateSyllabusForSession } = await import('@/api/learning')
     await generateSyllabusForSession(sessionId, subject.value)
@@ -344,9 +396,33 @@ function goToSyllabus() {
 
 .result-header {
   text-align: center;
+  margin-bottom: -10px;
   .result-icon { font-size: 56px; margin-bottom: 12px; }
   h2 { font-size: 26px; font-weight: 800; margin: 0 0 8px; }
   .result-sub { color: var(--color-text-secondary); margin: 0; }
+}
+
+.result-brief {
+  display: flex; align-items: center; justify-content: space-around;
+  padding: 20px; background: #f1f5f9; border-radius: 16px;
+  .score-box {
+    .score-circle {
+      width: 120px; height: 120px; border-radius: 50%;
+      background: white; border: 8px solid #8b5cf6;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+      .score-num { font-size: 42px; font-weight: 900; color: #6d28d9; line-height: 1; }
+      .score-unit { font-size: 12px; color: #64748b; margin-top: 4px; }
+    }
+  }
+  .result-meta {
+    display: flex; gap: 40px;
+    .meta-item {
+      display: flex; flex-direction: column; align-items: center;
+      .label { font-size: 13px; color: #64748b; margin-bottom: 4px; }
+      .val { font-size: 20px; font-weight: 700; color: #1e293b; }
+    }
+  }
 }
 
 .report-section {

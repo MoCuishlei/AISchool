@@ -130,3 +130,13 @@ class ExamRecord(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     session = relationship("LearningSession", back_populates="exam_records")
+
+class SystemConfig(Base):
+    """系统全局配置表 (OpenAI 兼容接口等)"""
+    __tablename__ = "system_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(Text)
+    description = Column(String(200))
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

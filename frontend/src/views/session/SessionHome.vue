@@ -32,7 +32,10 @@
           @click="continueSession(s)">
           <div class="card-header">
             <span class="subject">{{ s.subject }}</span>
-            <el-tag :type="statusTag(s.status)" size="small">{{ statusLabel(s.status) }}</el-tag>
+            <div class="header-actions">
+              <el-tag :type="statusTag(s.status)" size="small">{{ statusLabel(s.status) }}</el-tag>
+              <el-icon class="delete-icon" @click.stop="handleDelete(s)"><Delete /></el-icon>
+            </div>
           </div>
           <div class="progress-row">
             <el-progress :percentage="s.progress_pct" :stroke-width="6"
@@ -56,8 +59,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getStudentSessions, createSession } from '@/api/learning'
-import { Reading } from '@element-plus/icons-vue'
+import { getStudentSessions, createSession, deleteSession } from '@/api/learning'
+import { Reading, Delete } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const newSubject = ref('')
@@ -98,6 +102,25 @@ function continueSession(s: any) {
     router.push(`/session/${s.session_id}/syllabus`)
   }
 }
+
+async function handleDelete(s: any) {
+  try {
+    await ElMessageBox.confirm(`确定要删除课程《${s.subject}》吗？所有的学习进度和对话记录将被清空，且不可恢复。`, '⚠️ 删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await deleteSession(s.session_id)
+    ElMessage.success('课程已删除')
+    // 重新拉取列表
+    const res: any = await getStudentSessions()
+    sessions.value = res.sessions || []
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error(e.message || '删除失败')
+    }
+  }
+}
 </script>
 
 <style scoped lang="scss">
@@ -133,6 +156,11 @@ function continueSession(s: any) {
 }
 
 .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.delete-icon {
+  cursor: pointer; color: var(--color-text-secondary); font-size: 16px; padding: 4px; border-radius: 4px; transition: all .2s;
+  &:hover { color: #f56c6c; background: #fef0f0; }
+}
 .subject { font-size: 15px; font-weight: 700; }
 .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .pct { font-size: 13px; color: var(--color-text-secondary); white-space: nowrap; }

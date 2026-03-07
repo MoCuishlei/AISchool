@@ -5,7 +5,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
+    baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
     timeout: 120000,
     headers: { 'Content-Type': 'application/json' }
 })
@@ -18,10 +18,11 @@ api.interceptors.response.use(
     }
 )
 
+export { api }
 export default api
 
 // ── SSE 流式读取助手 ──────────────────────────────────────
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 async function fetchStream(path: string, body: any, onChunk: (chunk: string) => void) {
     const res = await fetch(`${BASE_URL}${path}`, {
@@ -46,7 +47,11 @@ async function fetchStream(path: string, body: any, onChunk: (chunk: string) => 
                 try {
                     const data = JSON.parse(message.slice(6))
                     if (data.status === 'streaming') {
-                        onChunk(data.chunk)
+                        // 清除大模型带有的 markdown `` `json 和 `` ` 后缀
+                        let cleanChunk = data.chunk
+                            .replace(/```json\n?/g, '')
+                            .replace(/```/g, '')
+                        onChunk(cleanChunk)
                     } else if (data.status === 'done') {
                         finalResult = data
                     }
@@ -58,7 +63,14 @@ async function fetchStream(path: string, body: any, onChunk: (chunk: string) => 
     return finalResult
 }
 
-// ── 健康检查 ──────────────────────────────────────────
+export const getSessionQuizzes = (sessionId: number) =>
+    api.get(`/session/${sessionId}/quizzes`)
+
+export const saveAssessmentAnswers = (sessionId: number, answers: string[]) =>
+    api.post(`/assessment/save_answers/${sessionId}`, { answers })
+
+
+// ── 知识问答助手 ──────────────────────────────────────────
 export const checkHealth = () => api.get('/health')
 
 // ── 会话管理 ──────────────────────────────────────────
@@ -67,6 +79,9 @@ export const createSession = (subject: string, studentName = '学习者') =>
 
 export const getSession = (sessionId: number) =>
     api.get(`/session/${sessionId}`)
+
+export const deleteSession = (sessionId: number) =>
+    api.delete(`/session/${sessionId}`)
 
 export const getStudentSessions = (studentName = '学习者') =>
     api.get(`/session/student/${encodeURIComponent(studentName)}`)
@@ -131,7 +146,7 @@ export const submitExam = (sessionId: number, examId: number,
     form.append('answers', JSON.stringify(answers))
     images.forEach(img => form.append('images', img))
     return axios.post(
-        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/exam/submit/${sessionId}`,
+        `${import.meta.env.VITE_API_BASE_URL || '/api'}/exam/submit/${sessionId}`,
         form, { timeout: 120000 }
     ).then(r => r.data)
 }

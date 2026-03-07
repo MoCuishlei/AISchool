@@ -7,7 +7,10 @@
         <span class="subject-badge">{{ sessionSubject }}</span>
         <span class="item-title">{{ itemTitle }}</span>
       </div>
-      <el-tag :type="phaseTag[phase]" size="small">{{ phaseLabel[phase] }}</el-tag>
+      <div class="header-right">
+        <el-tag :type="phaseTag[phase]" size="small" class="mr-2">{{ phaseLabel[phase] }}</el-tag>
+        <el-button type="info" plain size="small" @click="openHistory"><el-icon><Clock /></el-icon> 测验历史</el-button>
+      </div>
     </div>
 
     <!-- 讲课阶段 -->
@@ -134,14 +137,54 @@
       </div>
     </div>
 
+    <!-- 测验历史抽屉 -->
+    <el-drawer v-model="showHistory" title="🕰️ 历史测验记录" size="400px" class="history-drawer">
+      <div v-if="loadingHistory" class="history-loading">
+        <el-icon class="spin"><Loading /></el-icon> 正在加载记录...
+      </div>
+      <div v-else-if="!quizHistoryList.length" class="history-empty">
+        暂无测验记录
+      </div>
+      <div v-else class="history-list">
+        <div v-for="q in quizHistoryList" :key="q.id" class="history-card" :class="[q.passed ? 'passed' : 'failed', q.type]">
+          <div class="hc-header">
+            <span class="hc-title">
+              <el-tag v-if="q.type === 'assessment'" size="small" effect="dark" type="warning" class="mr-1">诊断</el-tag>
+              {{ q.item_title }}
+            </span>
+            <span class="hc-date">{{ formatDate(q.created_at) }}</span>
+          </div>
+          <div class="hc-meta">
+            <el-tag size="small" :type="q.passed ? 'success' : 'danger'">{{ q.passed ? '通过' : '未通过' }}</el-tag>
+            <span class="hc-score">{{ q.score }} 分 {{ q.type === 'quiz' ? `(第 ${q.attempt_number} 次尝试)` : '' }}</span>
+          </div>
+          
+          <el-collapse class="hc-details">
+            <el-collapse-item title="查看题目与解析" :name="q.id">
+              <div class="analysis-box">
+                <div v-for="(question, idx) in q.questions" :key="idx" class="analysis-item">
+                  <div class="ai-q">问：{{ question.question || question }}</div>
+                  <div class="ai-a">答：{{ q.answers[idx] }}</div>
+                </div>
+                <div class="ai-total-feedback">
+                  <strong>老师总评：</strong>
+                  <div v-html="renderMd(q.ai_feedback || '未生成评价')" />
+                </div>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+      </div>
+    </el-drawer>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getSession, startLesson, askQuestion as apiAsk, startQuiz as apiStartQuiz, submitQuiz as apiSubmitQuiz } from '@/api/learning'
-import { ArrowLeft, Loading, Delete } from '@element-plus/icons-vue'
+import { getSession, startLesson, askQuestion as apiAsk, startQuiz as apiStartQuiz, submitQuiz as apiSubmitQuiz, getSessionQuizzes } from '@/api/learning'
+import { ArrowLeft, Loading, Delete, Clock } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -347,6 +390,30 @@ async function retryQuiz() {
   phase.value = 'quiz'
   await startQuiz()
 }
+// ── 测验历史功能 ──
+const showHistory = ref(false)
+const loadingHistory = ref(false)
+const quizHistoryList = ref<any[]>([])
+
+const formatDate = (ds: string) => {
+  if (!ds) return ''
+  const d = new Date(ds)
+  return `${d.getMonth()+1}-${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+}
+
+async function openHistory() {
+  showHistory.value = true
+  loadingHistory.value = true
+  try {
+    const res: any = await getSessionQuizzes(sessionId)
+    quizHistoryList.value = res.quizzes || []
+  } catch (e) {
+    console.error(e)
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
 </script>
 
 <style scoped lang="scss">
@@ -357,6 +424,8 @@ async function retryQuiz() {
   .header-center { display: flex; flex-direction: column; align-items: center; }
   .subject-badge { font-size: 11px; color: var(--color-text-secondary); }
   .item-title { font-size: 15px; font-weight: 700; }
+  .header-right { display: flex; align-items: center; }
+  .mr-2 { margin-right: 8px; }
 }
 
 .loading-state {
@@ -512,5 +581,47 @@ async function retryQuiz() {
   align-items: center;
   &:hover { color: #ef4444; background: #fee2e2; }
   .el-icon { font-size: 15px; }
+}
+
+/* 测验历史样式 */
+.history-drawer {
+  .history-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 40px; color: #64748b; }
+  .history-empty { text-align: center; padding: 40px; color: #94a3b8; }
+  .history-list { display: flex; flex-direction: column; gap: 16px; padding: 0 16px 20px; }
+  .history-card {
+    background: #f8fafc; border-radius: 12px; padding: 16px; border-left: 4px solid #cbd5e1;
+    &.passed { border-left-color: #10b981; }
+    &.failed { border-left-color: #ef4444; }
+    &.assessment { border-left-color: #f59e0b; background: #fffcf0; }
+  }
+  .hc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .hc-title { font-weight: 700; font-size: 15px; color: #1e293b; display: flex; align-items: center; }
+  .hc-date { font-size: 12px; color: #94a3b8; }
+  .hc-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .hc-score { font-size: 13px; font-weight: 600; color: #334155; }
+  .mr-1 { margin-right: 4px; }
+  
+  .hc-details {
+    border: none;
+    :deep(.el-collapse-item__header) {
+      height: 32px; line-height: 32px; background: transparent; border: none; font-size: 12px; color: #6366f1;
+    }
+    :deep(.el-collapse-item__wrap) { background: transparent; border: none; }
+    :deep(.el-collapse-item__content) { padding-bottom: 0; }
+  }
+
+  .analysis-box {
+    font-size: 13px; color: #475569;
+    .analysis-item {
+      padding: 8px; background: white; border-radius: 6px; margin-bottom: 8px; border: 1px solid #f1f5f9;
+      .ai-q { font-weight: 600; color: #1e293b; margin-bottom: 4px; }
+      .ai-a { color: #64748b; font-style: italic; }
+    }
+    .ai-total-feedback {
+      margin-top: 12px; padding: 12px; background: #f1f5f9; border-radius: 8px;
+      strong { display: block; margin-bottom: 6px; color: #1e293b; }
+      :deep(p) { margin: 4px 0; }
+    }
+  }
 }
 </style>

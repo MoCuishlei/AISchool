@@ -9,16 +9,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _client():
-    return OpenAI(
-        api_key=os.getenv("DEEPSEEK_API_KEY"),
-        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-    )
+from core.config_utils import get_openai_client
 
 
-def _chat_messages(messages: list, temperature: float = 0.7) -> str:
-    r = _client().chat.completions.create(
-        model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+def _chat_messages(messages: list, temperature: float = 1.3) -> str:
+    client, model = get_openai_client()
+    r = client.chat.completions.create(
+        model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=3000,
@@ -36,12 +33,14 @@ def start_lesson(subject: str, item_title: str, attempt: int = 1) -> str:
         {
             "role": "system",
             "content": (
-                "你是一位耐心的学科教师，用清晰易懂的方式教学。"
+                "你是一位耐心的中国金牌辅导老师，用「深入浅出」的方式教学。"
                 "所有数学公式必须使用 LaTeX 格式：行内公式使用 $公式$，独占一行的公式使用 $$公式$$。"
                 "请按以下结构讲解：\n"
-                "## 📖 定义\n"
-                "## 💡 例题\n（给出2-3个从简单到复杂的例子）\n"
-                "## ⚠️ 常见误区\n"
+                "## 🎙️ 课堂引入\n"
+                "## 📖 核心知识讲解\n"
+                "## 💡 典型例题剖析\n（给出2-3个从简单到复杂的例题，包含详细解答过程）\n"
+                "## ⚠️ 易错点提示\n"
+                "## 📝 板书总结\n"
                 "## 💬 欢迎提问"
             )
         },
@@ -60,8 +59,9 @@ def ask_question(subject: str, item_title: str, lesson_content: str,
         {
             "role": "system",
             "content": (
-                f"你是「{subject}」的学科教师，正在讲解「{item_title}」。"
-                "回答要简洁、有针对性，可以补充例子，不要重复已讲过的内容。"
+                f"你是「{subject}」的中国金牌辅导教师，正在给学生讲解「{item_title}」。"
+                "回答要富有启发性，比如用“这位同学问得好”、“我们来回顾一下”等话术引导。"
+                "可以补充新例子，但不要照搬已讲过的长篇内容。语言要亲切自然。"
                 "所有数学公式必须使用 LaTeX 格式：行内公式用 $公式$，独立公式用 $$公式$$，不要直接输出裸式LaTeX。"
             )
         },
@@ -79,36 +79,39 @@ def ask_question(subject: str, item_title: str, lesson_content: str,
 
 def generate_mini_quiz(subject: str, item_title: str, count: int = 4) -> list:
     """生成小测验题目（联网+变形题，保证新颖性）"""
-    system = "你是一位出题专家，请严格返回 JSON 数组，不要有多余文字。"
-    user = f"""请为「{subject} - {item_title}」出 {count} 道小测验题。
+    system = (
+        "你是一位中国名校出卷专家，请严格返回 JSON 数组，不要有多余文字。\n"
+        "【重要约束】严禁在题目中出现“如图所示”、“见图”、“下方图表”等对外部图表的引用，因为目前系统无法显示图片。请确保所有题目都是文字自洽的。"
+    )
+    user = f"""请为「{subject} - {item_title}」出一份精简版的【当堂达标检测（随堂测验）】。共 {count} 道题目。
 要求：
-- 不要出教科书上的原题，要求是变形题或应用型题目
-- 题型：选择题和简答题混合（2道选择+2道简答）
-- 考察理解而非记忆，学生若只死记硬背就无法作答
-- 简答题要求有一定思考量
+- 不要出教科书上的原题，出一些变式题或应用设误题
+- 题型混合：单项选择题、填空题和简答题
+- 贴近国内应试风格，考察理解与变通，有一定思考量
 - JSON 格式：
 [
   {{
     "id": 1,
     "type": "choice",
-    "question": "题目（变形或应用场景）",
+    "question": "题目（变式或应用设误）",
     "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
     "answer": "B",
-    "explanation": "解析说明"
+    "explanation": "详细解析路线"
   }},
   {{
     "id": 2,
     "type": "open",
-    "question": "简答题目（需要理解才能作答）",
+    "question": "填空题或简答题目",
     "answer": "参考答案要点",
-    "explanation": "评分要点"
+    "explanation": "踩分点及考点说明"
   }}
 ]"""
-    raw = _client().chat.completions.create(
-        model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+    client, model = get_openai_client()
+    raw = client.chat.completions.create(
+        model=model,
         messages=[{"role": "system", "content": system},
                   {"role": "user",   "content": user}],
-        temperature=0.8,  # 稍高温度增加多样性
+        temperature=1.0,
         max_tokens=2000,
     ).choices[0].message.content or ""
 
@@ -124,37 +127,40 @@ def generate_mini_quiz(subject: str, item_title: str, count: int = 4) -> list:
 
 def generate_mini_quiz_stream(subject: str, item_title: str, count: int = 4):
     """流式生成小测验题目，实时 yield 状态和数据"""
-    system = "你是一位出题专家，请严格返回 JSON 数组，不要有多余文字。"
-    user = f"""请为「{subject} - {item_title}」出 {count} 道小测验题。
+    system = (
+        "你是一位中国名校出卷专家，请严格返回 JSON 数组，不要有多余文字。\n"
+        "【重要约束】严禁在题目中出现“如图所示”、“见图”、“下方图表”等对外部图表的引用，因为目前系统无法显示图片。请确保所有题目都是文字自洽的。"
+    )
+    user = f"""请为「{subject} - {item_title}」出一份精简版的【当堂达标检测（随堂测验）】。共 {count} 道题目。
 要求：
-- 不要出教科书上的原题，要求是变形题或应用型题目
-- 题型：选择题和简答题混合（2道选择+2道简答）
-- 考察理解而非记忆，学生若只死记硬背就无法作答
-- 简答题要求有一定思考量
+- 不要出教科书上的原题，出一些变式题或应用设误题
+- 题型混合：单项选择题、填空题和简答题
+- 贴近国内应试风格，考察理解与变通，有一定思考量
 - JSON 格式：
 [
   {{
     "id": 1,
     "type": "choice",
-    "question": "题目（变形或应用场景）",
+    "question": "题目（变式或应用设误）",
     "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
     "answer": "B",
-    "explanation": "解析说明"
+    "explanation": "详细解析路线"
   }},
   {{
     "id": 2,
     "type": "open",
-    "question": "简答题目（需要理解才能作答）",
+    "question": "填空题或简答题目",
     "answer": "参考答案要点",
-    "explanation": "评分要点"
+    "explanation": "踩分点及考点说明"
   }}
 ]"""
     try:
-        response = _client().chat.completions.create(
-            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        client, model = get_openai_client()
+        response = client.chat.completions.create(
+            model=model,
             messages=[{"role": "system", "content": system},
                       {"role": "user",   "content": user}],
-            temperature=0.8, max_tokens=2000, stream=True
+            temperature=1.0, max_tokens=2000, stream=True
         )
         buffer = ""
         for chunk in response:
@@ -191,25 +197,26 @@ def evaluate_quiz(subject: str, item_title: str, questions: list,
             })
     content_parts.append({
         "type": "text",
-        "text": f"请批改「{subject} - {item_title}」的小测验：\n{qa_text}\n\n请返回JSON：{{\"score\": 85, \"passed\": true, \"feedback\": \"...\", \"weak_points\": [\"...\"]}}",
+        "text": f"请批改「{subject} - {item_title}」的小测验：\n{qa_text}\n\n请返回JSON：{{\"score\": 85, \"passed\": true, \"feedback\": \"具体的典型错误分析与复习建议...\", \"weak_points\": [\"...\"]}}",
     })
 
     try:
-        r = _client().chat.completions.create(
-            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        client, model = get_openai_client()
+        r = client.chat.completions.create(
+            model=model,
             messages=[
-                {"role": "system", "content": "你是严格公正的评分老师，请返回 JSON 不要有多余文字。"},
+                {"role": "system", "content": "你是严格公正的中国阅卷老师，注意按踩分点给分，请返回 JSON 不要有多余文字。"},
                 {"role": "user", "content": content_parts if images else content_parts[0]["text"]}
             ],
-            temperature=0.3, max_tokens=1500,
+            temperature=0.0, max_tokens=1500,
         )
         raw = r.choices[0].message.content or ""
     except Exception as e:
         # Vision 不支持时回退到纯文字
         raw = _chat_messages([
-            {"role": "system", "content": "你是严格公正的评分老师，请返回 JSON 不要有多余文字。"},
-            {"role": "user", "content": f"批改「{subject} - {item_title}」小测验：\n{qa_text}\n返回JSON：{{\"score\": 85, \"passed\": true, \"feedback\": \"...\", \"weak_points\": []}}"}
-        ], temperature=0.3)
+            {"role": "system", "content": "你是严格公正的中国阅卷老师，注意按踩分点给分，请返回 JSON 不要有多余文字。"},
+            {"role": "user", "content": f"批改「{subject} - {item_title}」小测验：\n{qa_text}\n返回JSON：{{\"score\": 85, \"passed\": true, \"feedback\": \"具体的典型错误分析与复习建议...\", \"weak_points\": []}}"}
+        ], temperature=0.0)
 
     raw = raw.strip()
     if raw.startswith("```"):

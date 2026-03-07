@@ -1,0 +1,37 @@
+# Stage 1: Build Frontend
+FROM node:20-alpine AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ .
+RUN npm run build
+
+# Stage 2: Final Image (Python Backend + Static Frontend)
+FROM python:3.11-slim
+WORKDIR /app
+
+# 安装镜像依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制后端依赖并安装
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制后端代码
+COPY . .
+
+# 从前端构建阶段复制产物到后端静态目录
+# api/main.py 已经配置为从 api/static 目录读取
+RUN mkdir -p api/static
+COPY --from=frontend-build /app/frontend/dist/ api/static/
+
+EXPOSE 8000
+
+# 默认环境变量
+ENV DATABASE_URL=sqlite:///./aischool.db
+ENV RUNNING_IN_DOCKER=true
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

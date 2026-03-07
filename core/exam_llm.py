@@ -9,11 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _client():
-    return OpenAI(
-        api_key=os.getenv("DEEPSEEK_API_KEY"),
-        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-    )
+from core.config_utils import get_openai_client
 
 
 def generate_exam(subject: str, covered_items: list, exam_type: str) -> list:
@@ -22,23 +18,23 @@ def generate_exam(subject: str, covered_items: list, exam_type: str) -> list:
     scope = "已学习的章节" if exam_type == "midterm" else "全部章节"
     items_text = "、".join(covered_items[:20])
 
-    system = "你是一位资深命题教师，请严格返回 JSON 数组，不要有多余文字。"
-    user = f"""为「{subject}」出一份{"期中" if exam_type == "midterm" else "期末"}考试试卷。
-考察范围：{scope}，具体知识点：{items_text}
+    system = "你是一位资深中国公立学校命题组长，请严格返回 JSON 数组，不要有多余文字。"
+    user = f"""为「{subject}」出一份极具区分度的{"期中" if exam_type == "midterm" else "期末"}考试试卷。
+考察范围：{scope}，具体考点：{items_text}
 
 要求：
 - 共 {count} 道题
-- 题型：选择题{count//2}道 + 简答题{count//4}道 + 综合应用{count//4}道
-- 难度分布：30%简单、50%中等、20%困难
-- 题目新颖，考察理解和应用，不要死记硬背能答出的题
-- 综合题要求综合运用多个知识点
-- JSON 格式与小测验相同，增加 "score_weight": 分值
+- 题型：单选题（{count//2}道）、填空/简答题（{count//4}道）、压轴综合大题（{count//4}道）
+- 难度分布符合国内考试核心标准：30%基础送分、50%中档拉开差距、20%压轴选拔
+- 题目新颖贴近国情，考察深度理解和推导，杜绝死记硬背
+- 压轴大题要求综合运用多个考点，设置层层递进的小问
+- JSON 格式与小测验相同，增加 "score_weight": 分值（选择题分低，综合大题分高）
 
 [
   {{
     "id": 1,
     "type": "choice",
-    "domain": "知识点",
+    "domain": "具体考点",
     "question": "...",
     "options": ["A...", "B...", "C...", "D..."],
     "answer": "B",
@@ -49,11 +45,12 @@ def generate_exam(subject: str, covered_items: list, exam_type: str) -> list:
 ]"""
 
     try:
-        r = _client().chat.completions.create(
-            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        client, model = get_openai_client()
+        r = client.chat.completions.create(
+            model=model,
             messages=[{"role": "system", "content": system},
                       {"role": "user",   "content": user}],
-            temperature=0.7, max_tokens=4000,
+            temperature=1.0, max_tokens=4000,
         )
         raw = r.choices[0].message.content or ""
         raw = raw.strip()
@@ -71,23 +68,23 @@ def generate_exam_stream(subject: str, covered_items: list, exam_type: str):
     scope = "已学习的章节" if exam_type == "midterm" else "全部章节"
     items_text = "、".join(covered_items[:20])
 
-    system = "你是一位资深命题教师，请严格返回 JSON 数组，不要有多余文字。"
-    user = f"""为「{subject}」出一份{"期中" if exam_type == "midterm" else "期末"}考试试卷。
-考察范围：{scope}，具体知识点：{items_text}
+    system = "你是一位资深中国公立学校命题组长，请严格返回 JSON 数组，不要有多余文字。"
+    user = f"""为「{subject}」出一份极具区分度的{"期中" if exam_type == "midterm" else "期末"}考试试卷。
+考察范围：{scope}，具体考点：{items_text}
 
 要求：
 - 共 {count} 道题
-- 题型：选择题{count//2}道 + 简答题{count//4}道 + 综合应用{count//4}道
-- 难度分布：30%简单、50%中等、20%困难
-- 题目新颖，考察理解和应用，不要死记硬背能答出的题
-- 综合题要求综合运用多个知识点
-- JSON 格式与小测验相同，增加 "score_weight": 分值
+- 题型：单选题（{count//2}道）、填空/简答题（{count//4}道）、压轴综合大题（{count//4}道）
+- 难度分布符合国内考试核心标准：30%基础送分、50%中档拉开差距、20%压轴选拔
+- 题目新颖贴近国情，考察深度理解和推导，杜绝死记硬背
+- 压轴大题要求综合运用多个考点，设置层层递进的小问
+- JSON 格式与小测验相同，增加 "score_weight": 分值（选择题分低，综合大题分高）
 
 [
   {{
     "id": 1,
     "type": "choice",
-    "domain": "知识点",
+    "domain": "具体考点",
     "question": "...",
     "options": ["A...", "B...", "C...", "D..."],
     "answer": "B",
@@ -102,7 +99,7 @@ def generate_exam_stream(subject: str, covered_items: list, exam_type: str):
             model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
             messages=[{"role": "system", "content": system},
                       {"role": "user",   "content": user}],
-            temperature=0.7, max_tokens=4000, stream=True
+            temperature=1.0, max_tokens=4000, stream=True
         )
         buffer = ""
         for chunk in r:
@@ -129,19 +126,20 @@ def evaluate_exam(subject: str, exam_type: str, questions: list, answers: list) 
         qa_text += f"\n题{q['id']}（{q.get('domain','')}）[{q.get('score_weight',5)}分]：{q['question']}\n学生：{a}\n参考：{q.get('answer','')}\n"
 
     exam_name = "期中考试" if exam_type == "midterm" else "期末考试"
-    r = _client().chat.completions.create(
-        model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+    client, model = get_openai_client()
+    r = client.chat.completions.create(
+        model=model,
         messages=[
-            {"role": "system", "content": "你是严格的阅卷教师，按百分制评分，返回 JSON 不要多余文字。"},
+            {"role": "system", "content": "你是资深的中国考卷阅卷组长，按百分制严格评分，并给出学情分析。返回 JSON 不要多余文字。"},
             {"role": "user", "content": (
                 f"批改「{subject}」{exam_name}：\n{qa_text}\n\n"
                 "返回JSON格式：\n"
-                "{\"score\": 82, \"grade\": \"B\", \"report\": \"整体评价...\", "
-                "\"strengths\": [\"...\"], \"weaknesses\": [\"...\"], "
-                "\"suggestions\": \"下一步建议...\"}"
+                "{\"score\": 82, \"grade\": \"B\", \"report\": \"试卷分析与阅卷整体报告...\", "
+                "\"strengths\": [\"...\"], \"weaknesses\": [\"具体的错误归因分析...\"], "
+                "\"suggestions\": \"冲刺提分建议...\"}"
             )}
         ],
-        temperature=0.3, max_tokens=2000,
+        temperature=0.0, max_tokens=2000,
     )
     raw = r.choices[0].message.content or ""
     raw = raw.strip()

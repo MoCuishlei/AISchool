@@ -1,0 +1,106 @@
+name: Release AI School
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release Version (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: actions/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 1. 构建后端镜像
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/aischool-backend:latest
+            ghcr.io/${{ github.repository_owner }}/aischool-backend:${{ github.event.inputs.version }}
+
+      # 2. 构建前端镜像
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/aischool-frontend:latest
+            ghcr.io/${{ github.repository_owner }}/aischool-frontend:${{ github.event.inputs.version }}
+
+      # 3. 构建一体化 Standalone 镜像
+      - name: Build and Push Standalone Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.standalone
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/aischool-standalone:latest
+            ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ github.event.inputs.version }}
+
+      # 4. 打包镜像为离线文件 (.tar.gz)
+      - name: Save Docker Images as Artifacts
+        run: |
+          docker pull ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ github.event.inputs.version }}
+          docker save \
+            ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ github.event.inputs.version }} \
+            | gzip > aischool-standalone-${{ github.event.inputs.version }}.tar.gz
+
+      # 4. 创建 Git Tag 并提交 (如果不存在)
+      - name: Create Git Tag
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a ${{ github.event.inputs.version }} -m "Release ${{ github.event.inputs.version }}"
+          git push origin ${{ github.event.inputs.version }}
+
+      # 5. 创建 GitHub Release 并上传附件
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          files: |
+            aischool-standalone-${{ github.event.inputs.version }}.tar.gz
+            docker-compose.yml
+            .env.example
+          body: |
+            AI School ${{ github.event.inputs.version }} 发布包。
+            
+            ### Standalone 模式 (推荐)
+            1. 下载 `aischool-standalone-${{ github.event.inputs.version }}.tar.gz`。
+            2. 运行 `docker load -i aischool-standalone-${{ github.event.inputs.version }}.tar.gz` 加载镜像。
+            3. 直接启动：`docker run -d -p 8000:8000 --name aischool-app ghcr.io/${{ github.repository_owner }}/aischool-standalone:${{ github.event.inputs.version }}`。
+            
+            ### Docker Compose 模式 (适合生产/集群)
+            1. 下载所有附件。
+            2. 配置 `.env`。
+            3. 运行 `docker-compose up -d`。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

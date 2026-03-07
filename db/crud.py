@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from db.models import (
     Student, LearningSession, SyllabusItem,
-    AssessmentRecord, ClassroomConversation, QuizRecord, ExamRecord
+    AssessmentRecord, ClassroomConversation, QuizRecord, ExamRecord,
+    SystemConfig
 )
 
 
@@ -63,6 +64,20 @@ def update_session_progress(db: Session, session_id: int) -> float:
         session.progress_pct = pct
         db.commit()
     return pct
+
+
+def delete_session(db: Session, session_id: int) -> bool:
+    """级联册除会话（评估记录没有设置 cascade，因此手动删除）"""
+    session = get_session(db, session_id)
+    if not session:
+        return False
+    # 手动删除关联的 AssessmentRecord，避免外键约束冲突
+    assessment = db.query(AssessmentRecord).filter(AssessmentRecord.session_id == session_id).first()
+    if assessment:
+        db.delete(assessment)
+    db.delete(session)
+    db.commit()
+    return True
 
 
 # ─── SyllabusItem ─────────────────────────────────────────
@@ -126,10 +141,12 @@ def create_assessment(db: Session, session_id: int, questions: list) -> Assessme
 
 
 def complete_assessment(db: Session, session_id: int, answers: list,
-                        proficiency: dict, report: str) -> AssessmentRecord:
+                        proficiency: dict, report: str, overall_score: float = 0.0) -> AssessmentRecord:
     record = db.query(AssessmentRecord).filter(AssessmentRecord.session_id == session_id).first()
     if record:
         record.answers = answers
+        # 将总体评分也存入熟练度结果中，方便前端读取
+        proficiency["__overall__"] = overall_score
         record.proficiency_result = proficiency
         record.ai_report = report
         record.completed = True
@@ -280,3 +297,28 @@ def complete_exam(db: Session, exam_id: int, answers: list,
         db.commit()
         db.refresh(record)
     return record
+
+
+# ─── SystemConfig ──────────────────────────────────────────
+
+def get_config(db: Session, key: str) -> Optional[str]:
+    cfg = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+    return cfg.value if cfg else None
+
+
+def set_config(db: Session, key: str, value: str, description: str = None):
+    cfg = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+    if cfg:
+        cfg.value = value
+        if description:
+            cfg.description = description
+    else:
+        cfg = SystemConfig(key=key, value=value, description=description)
+        db.add(cfg)
+    db.commit()
+    db.refresh(cfg)
+    return cfg
+
+
+def get_all_configs(db: Session) -> List[SystemConfig]:
+    return db.query(SystemConfig).all()

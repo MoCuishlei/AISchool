@@ -88,6 +88,20 @@ const router = createRouter({
           meta: { title: '练习题' }
         },
 
+        // ── 系统设置与文档 ──────────────────────────
+        {
+          path: 'settings/config',
+          name: 'ModelConfig',
+          component: () => import('@/views/settings/Config.vue'),
+          meta: { title: '模型配置' }
+        },
+        {
+          path: 'docs/api',
+          name: 'ApiDocs',
+          component: () => import('@/views/docs/ApiDocs.vue'),
+          meta: { title: 'API 文档' }
+        },
+
         // 404
         {
           path: '/:pathMatch(.*)*',

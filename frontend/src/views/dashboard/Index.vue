@@ -1,131 +1,203 @@
 <template>
   <div class="dashboard">
-    <!-- 欢迎横幅 -->
-    <div class="welcome-banner">
-      <div class="welcome-text">
-        <h2>👋 欢迎回来，{{ authStore.user?.name }}</h2>
-        <p>开始今天的 AI 辅助学习之旅吧</p>
-      </div>
-      <div class="backend-status">
-        <el-tag
-          :type="learningStore.backendStatus === 'healthy' ? 'success' : learningStore.backendStatus === 'unhealthy' ? 'danger' : 'info'"
-          size="large"
-        >
-          <el-icon style="margin-right:4px">
-            <CircleCheck v-if="learningStore.backendStatus === 'healthy'" />
-            <CircleClose v-else-if="learningStore.backendStatus === 'unhealthy'" />
-            <Loading v-else />
-          </el-icon>
-          AI 后端
-          {{ learningStore.backendStatus === 'healthy' ? '运行正常' : learningStore.backendStatus === 'unhealthy' ? '连接失败' : '检测中...' }}
-        </el-tag>
-      </div>
-    </div>
-
-    <!-- 统计卡片 -->
-    <div class="stats-grid">
-      <div class="stat-card stat-card--blue">
-        <el-icon class="stat-icon"><Lightning /></el-icon>
-        <div class="stat-info">
-          <div class="stat-value">快速学习</div>
-          <div class="stat-label">输入主题，AI 立即讲解</div>
-        </div>
-      </div>
-      <div class="stat-card stat-card--green">
-        <el-icon class="stat-icon"><EditPen /></el-icon>
-        <div class="stat-info">
-          <div class="stat-value">练习题</div>
-          <div class="stat-label">AI 自动生成，检验掌握程度</div>
-        </div>
-      </div>
-      <div class="stat-card stat-card--purple">
-        <el-icon class="stat-icon"><Reading /></el-icon>
-        <div class="stat-info">
-          <div class="stat-value">多Agent系统</div>
-          <div class="stat-label">5个专业AI协作辅导</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 快速操作 -->
-    <div class="quick-actions">
-      <h3 class="section-title">快速开始</h3>
-      <div class="action-cards">
-        <router-link to="/learn" class="action-card action-card--primary">
-          <el-icon class="action-icon"><Lightning /></el-icon>
-          <div>
-            <div class="action-title">快速学习</div>
-            <div class="action-desc">输入任意学习主题，AI 立刻生成讲解内容</div>
+    <!-- 顶部状态概览 -->
+    <div class="stats-overview">
+      <div class="overview-card main-stats">
+        <div class="header-with-action">
+          <div class="subject-info">
+            <span class="subject-label">当前学习科目</span>
+            <h2 class="subject-name">{{ analytics?.subject || '加载中...' }}</h2>
           </div>
-          <el-icon class="action-arrow"><ArrowRight /></el-icon>
-        </router-link>
-
-        <router-link to="/practice" class="action-card action-card--success">
-          <el-icon class="action-icon"><EditPen /></el-icon>
-          <div>
-            <div class="action-title">生成练习题</div>
-            <div class="action-desc">选择主题和难度，AI 自动出题帮你巩固</div>
+          <div class="session-selector">
+            <el-select v-model="selectedSessionId" placeholder="切换课程" size="default" style="width: 180px" @change="fetchAnalytics">
+              <el-option
+                v-for="s in sessions"
+                :key="s.session_id"
+                :label="s.subject"
+                :value="s.session_id"
+              />
+            </el-select>
           </div>
-          <el-icon class="action-arrow"><ArrowRight /></el-icon>
-        </router-link>
+        </div>
+        <div class="progress-section">
+          <div class="lp-header">
+            <span>总体进度</span>
+            <span>{{ analytics?.progress || 0 }}%</span>
+          </div>
+          <el-progress :percentage="analytics?.progress || 0" :stroke-width="12" stroke-linecap="round" color="#6366f1" />
+        </div>
+      </div>
+      
+      <div class="overview-card score-prediction">
+        <div class="sp-title">预计考分预测</div>
+        <div class="sp-value">{{ analytics?.projected_score || '--' }}</div>
+        <div class="sp-desc">基于当前掌握情况与测验表现</div>
       </div>
     </div>
 
-    <!-- API 端点信息 -->
-    <div class="api-info">
-      <h3 class="section-title">后端 API 信息</h3>
-      <div class="api-cards">
-        <div class="api-card">
-          <code>GET /health</code>
-          <span>健康检查</span>
-          <el-tag size="small" type="success">GET</el-tag>
-        </div>
-        <div class="api-card">
-          <code>POST /learning/quick-teach</code>
-          <span>快速教学</span>
-          <el-tag size="small" type="warning">POST</el-tag>
-        </div>
-        <div class="api-card">
-          <code>POST /learning/practice</code>
-          <span>生成练习题</span>
-          <el-tag size="small" type="warning">POST</el-tag>
-        </div>
-        <div class="api-card">
-          <code>POST /learning/session</code>
-          <span>创建学习会话</span>
-          <el-tag size="small" type="warning">POST</el-tag>
-        </div>
+    <div v-if="loading" class="loading-state" style="padding: 100px; text-align: center;">
+      <el-icon class="is-loading" :size="40" color="#6366f1"><Loading /></el-icon>
+      <p style="margin-top: 16px; color: #94a3b8;">获取学情分析中...</p>
+    </div>
+
+    <div v-else-if="!analytics" class="empty-dashboard">
+      <el-empty description="暂无学习数据，先开启一门课程吧">
+        <router-link to="/my-courses">
+          <el-button type="primary">前往课程列表</el-button>
+        </router-link>
+      </el-empty>
+    </div>
+
+    <!-- 图表展示区 -->
+    <div v-else class="charts-container">
+      <div class="chart-box trend-chart">
+        <div class="cb-header">知识掌握趋势</div>
+        <v-chart class="chart" :option="trendOption" autoresize />
       </div>
-      <el-button
-        type="primary"
-        link
-        @click="openDocs"
-      >
-        查看完整 API 文档 (Swagger) →
-      </el-button>
+      
+      <div class="chart-box distribution-chart">
+        <div class="cb-header">领域能力分布</div>
+        <v-chart class="chart" :option="radarOption" autoresize />
+      </div>
+    </div>
+
+    <!-- 快捷操作入口 -->
+    <div class="bottom-actions">
+      <h3 class="section-title">核心学习工具</h3>
+      <div class="action-grid">
+        <router-link :to="`/session/${lastSessionId}/report`" class="mini-action" v-if="lastSessionId">
+          <el-icon><List /></el-icon>
+          <span>查看详细大纲</span>
+        </router-link>
+        <router-link to="/learn" class="mini-action">
+          <el-icon><Lightning /></el-icon>
+          <span>同步随堂讲义</span>
+        </router-link>
+        <router-link to="/practice" class="mini-action">
+          <el-icon><EditPen /></el-icon>
+          <span>强化变式练习</span>
+        </router-link>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { useLearningStore } from '@/stores/learning'
+import { getStudentSessions, api } from '@/api/learning'
+import { Loading, List, Lightning, EditPen } from '@element-plus/icons-vue'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart, RadarChart } from 'echarts/charts'
 import {
-  Lightning, EditPen, Reading, ArrowRight,
-  CircleCheck, CircleClose, Loading
-} from '@element-plus/icons-vue'
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent
+} from 'echarts/components'
+import VChart from 'vue-echarts'
+
+use([
+  CanvasRenderer,
+  LineChart,
+  RadarChart,
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent
+])
 
 const authStore = useAuthStore()
-const learningStore = useLearningStore()
+const analytics = ref<any>(null)
+const selectedSessionId = ref<number | null>(null)
+const sessions = ref<any[]>([])
+const loading = ref(false)
 
-onMounted(() => {
-  learningStore.checkBackend()
+const lastSessionId = computed(() => selectedSessionId.value)
+
+const fetchAnalytics = async () => {
+  if (!selectedSessionId.value) return
+  loading.value = true
+  try {
+    const data: any = await (api as any).get(`/analytics/dashboard/${selectedSessionId.value}`)
+    analytics.value = data
+  } catch (e) {
+    console.error('Failed to load analytics:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(async () => {
+  try {
+    const res: any = await getStudentSessions(authStore.user?.name || '学习者')
+    if (res.sessions && res.sessions.length > 0) {
+      sessions.value = res.sessions
+      // 默认选中第一个
+      selectedSessionId.value = res.sessions[0].session_id
+      await fetchAnalytics()
+    }
+  } catch (e) {
+    console.error('Failed to load sessions:', e)
+  }
 })
 
-const openDocs = () => {
-  window.open('http://localhost:8000/docs', '_blank')
-}
+// 趋势图配置
+const trendOption = computed(() => {
+  const trend = analytics.value?.trend || []
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: trend.map((t: any) => t.item.substring(0, 6) + '...'),
+      axisLabel: { color: '#94a3b8' }
+    },
+    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { color: '#94a3b8' } },
+    series: [
+      {
+        name: '测验得分',
+        type: 'line',
+        smooth: true,
+        data: trend.map((t: any) => t.score),
+        itemStyle: { color: '#6366f1' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [{ offset: 0, color: 'rgba(99, 102, 241, 0.3)' }, { offset: 1, color: 'rgba(99, 102, 241, 0)' }]
+          }
+        }
+      }
+    ]
+  }
+})
+
+// 雷达图配置
+const radarOption = computed(() => {
+  const dist = analytics.value?.mastery_distribution || {}
+  const keys = Object.keys(dist).filter(k => k !== '__overall__')
+  return {
+    tooltip: {
+      trigger: 'item'
+    },
+    radar: {
+      indicator: keys.map(k => ({ name: k, max: 100 })),
+      splitArea: { show: false },
+      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.3)' } }
+    },
+    series: [
+      {
+        name: '掌握度分析',
+        type: 'radar',
+        data: [{ value: keys.map(k => Math.round(dist[k])), name: '当前掌握' }],
+        itemStyle: { color: '#8b5cf6' },
+        areaStyle: { color: 'rgba(139, 92, 246, 0.2)' }
+      }
+    ]
+  }
+})
 </script>
 
 <style scoped lang="scss">
@@ -133,147 +205,133 @@ const openDocs = () => {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  max-width: 1000px;
 }
 
-.welcome-banner {
-  background: linear-gradient(135deg, #1a1f35 0%, #2d3561 100%);
-  border-radius: 16px;
-  padding: 28px 32px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: white;
-
-  h2 { margin: 0 0 8px; font-size: 22px; }
-  p { margin: 0; color: rgba(255,255,255,0.7); font-size: 14px; }
-}
-
-.stats-grid {
+.stats-overview {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+
+  @media (max-width: 992px) {
+    grid-template-columns: 1fr;
+    .score-prediction { height: 120px; }
+  }
 }
 
-.stat-card {
+.overview-card {
   background: white;
-  border-radius: 12px;
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  border: 1px solid var(--color-border-lighter);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  border: 1px solid rgba(0,0,0,0.02);
 
-  .stat-icon {
-    font-size: 36px;
-    padding: 12px;
-    border-radius: 12px;
+  @media (max-width: 768px) {
+    padding: 16px;
   }
 
-  .stat-value { font-size: 16px; font-weight: 700; color: var(--color-text-primary); }
-  .stat-label { font-size: 12px; color: var(--color-text-secondary); margin-top: 2px; }
-
-  &--blue .stat-icon { color: #3b82f6; background: #eff6ff; }
-  &--green .stat-icon { color: #10b981; background: #ecfdf5; }
-  &--purple .stat-icon { color: #8b5cf6; background: #f5f3ff; }
+  .theme-dark & {
+    background: #1e1e2d;
+    border-color: rgba(255,255,255,0.05);
+  }
 }
 
-.section-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0 0 16px;
-}
-
-.action-cards {
+.main-stats {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 20px;
+
+  .header-with-action {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    
+    @media (max-width: 576px) {
+      flex-direction: column;
+      gap: 12px;
+      .session-selector { width: 100% !important; .el-select { width: 100% !important; } }
+    }
+  }
+
+  .subject-label { font-size: 13px; color: #64748b; margin-bottom: 4px; display: block; }
+  .subject-name { font-size: 24px; font-weight: 800; color: #1e293b; margin: 0; .theme-dark & { color: white; } }
+  
+  .progress-section {
+    .lp-header { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #475569; }
+  }
 }
 
-.action-card {
+.score-prediction {
+  text-align: center;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+
+  .sp-title { font-size: 14px; opacity: 0.9; margin-bottom: 8px; }
+  .sp-value { font-size: 48px; font-weight: 900; letter-spacing: -1px; }
+  .sp-desc { font-size: 11px; opacity: 0.7; margin-top: 8px; }
+}
+
+.charts-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+
+  @media (max-width: 1024px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart-box {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  height: 360px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+
+  .theme-dark & { background: #1e1e2d; }
+  
+  .cb-header { font-size: 16px; font-weight: 700; color: #1e293b; margin-bottom: 16px; .theme-dark & { color: white; } }
+  .chart { flex: 1; }
+}
+
+.bottom-actions {
+  .section-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; color: #1e293b; .theme-dark & { color: white; } }
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.mini-action {
+  background: white;
+  padding: 16px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 20px 24px;
-  border-radius: 12px;
+  gap: 12px;
   text-decoration: none;
-  cursor: pointer;
+  color: #475569;
+  font-weight: 600;
   transition: all 0.2s;
-  border: 2px solid transparent;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  border: 1px solid transparent;
 
-  .action-icon {
-    font-size: 28px;
-    padding: 10px;
-    border-radius: 10px;
-    flex-shrink: 0;
+  .theme-dark & { background: #1e1e2d; color: #94a3b8; }
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: #6366f1;
+    color: #6366f1;
+    box-shadow: 0 8px 16px rgba(99, 102, 241, 0.1);
   }
 
-  .action-title {
-    font-size: 15px;
-    font-weight: 600;
-    margin-bottom: 4px;
-  }
-
-  .action-desc {
-    font-size: 13px;
-    opacity: 0.8;
-  }
-
-  .action-arrow {
-    margin-left: auto;
-    font-size: 18px;
-    flex-shrink: 0;
-    transition: transform 0.2s;
-  }
-
-  &:hover .action-arrow {
-    transform: translateX(4px);
-  }
-
-  &--primary {
-    background: linear-gradient(135deg, #eff6ff, #dbeafe);
-    color: #1d4ed8;
-    .action-icon { color: #3b82f6; background: white; }
-    &:hover { border-color: #3b82f6; }
-  }
-
-  &--success {
-    background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-    color: #166534;
-    .action-icon { color: #10b981; background: white; }
-    &:hover { border-color: #10b981; }
-  }
-}
-
-.api-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.api-card {
-  background: #f8fafc;
-  border: 1px solid var(--color-border-lighter);
-  border-radius: 8px;
-  padding: 10px 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-
-  code {
-    font-family: 'Fira Code', monospace;
-    font-size: 13px;
-    color: #2563eb;
-    min-width: 240px;
-  }
-
-  span {
-    flex: 1;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-  }
+  .el-icon { font-size: 20px; }
 }
 </style>
