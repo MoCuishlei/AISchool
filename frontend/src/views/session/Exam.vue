@@ -110,13 +110,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { getSession, generateExamStream, submitExam as apiSubmit } from '@/api/learning'
 import { ArrowLeft, Loading } from '@element-plus/icons-vue'
 
 const route = useRoute()
-const router = useRouter()
 const sessionId = Number(route.params.sessionId)
 const examType = route.params.examType as string
 
@@ -140,7 +139,14 @@ const photoUrls = ref<string[]>([])
 const currentIdx = ref(0)
 const examScore = ref(0)
 const examReport = ref('')
-const diffTag = (d: string) => ({ easy: 'success', medium: 'warning', hard: 'danger' }[d] || 'info')
+const diffTag = (d: string): "success" | "warning" | "danger" | "info" => {
+  const map: Record<string, "success" | "warning" | "danger" | "info"> = {
+    easy: 'success',
+    medium: 'warning',
+    hard: 'danger'
+  }
+  return map[d] || 'info'
+}
 import { renderMd } from '@/utils/markdown'
 
 onMounted(async () => {

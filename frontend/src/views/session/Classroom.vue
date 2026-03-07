@@ -183,7 +183,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getSession, startLesson, askQuestion as apiAsk, startQuiz as apiStartQuiz, submitQuiz as apiSubmitQuiz, getSessionQuizzes } from '@/api/learning'
+import { getSession, startLesson, askQuestion as apiAsk, startQuiz as apiStartQuiz, startQuizStream, submitQuiz as apiSubmitQuiz, getSessionQuizzes } from '@/api/learning'
 import { ArrowLeft, Loading, Delete, Clock } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -317,7 +317,7 @@ async function startQuiz() {
   }, 1000)
 
   try {
-    const res: any = await startQuizStream(sessionId, conversationId.value, itemDbId, (chunk) => {
+    const res: any = await startQuizStream(sessionId, conversationId.value, itemDbId, (chunk: string) => {
       quizStreamText.value += chunk
     })
     if (res && res.quiz_id) {
