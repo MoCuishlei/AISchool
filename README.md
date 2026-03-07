@@ -1,73 +1,68 @@
-# AI School - 多Agent学习辅导系统
+# AI School - 智能学习辅导系统 (Multi-Agent)
 
-基于CrewAI的多Agent学习辅导系统，支持多种LLM模型（DeepSeek、OpenAI、本地模型）。
+基于 CrewAI 的智能学习系统，具备多端适配、自定义 LLM 配置及自动化部署能力。
 
-## 🎯 核心Agent
-1. **总控Agent** - 协调学习流程
-2. **教学Agent** - 知识点讲解  
-3. **出题Agent** - 生成练习题
-4. **测验Agent** - 评估学习效果
-5. **记忆Agent** - 管理学习历史
+## 🎯 核心特性
+- **多端适配**: 完美支持手机、平板、PC 访问。
+- **自定义模型**: 界面化配置 OpenAI 兼容接口（如 DeepSeek, GPT-4）。
+- **全栈 Docker 化**: 支持一键启动及单镜像极简部署。
+- **自动化发布**: 集成 GitHub Actions 流水线。
 
-## 🚀 快速开始
+---
 
-### 方法1：使用OpenClaw配置（推荐）
+## 🚀 部署指南
+
+### 1. 克隆仓库
 ```bash
-# 自动使用当前OpenClaw会话的模型和API配置
-python run_with_openclaw.py
+git clone https://github.com/MoCuishlei/AISchool.git
+cd AISchool
 ```
 
-### 方法2：标准运行
+### 2. 方式一：Docker Compose 全栈部署 (推荐)
+适合开发和生产环境，包含数据库和 Redis 缓存。
 ```bash
-# 1. 安装依赖
-pip install -r requirements.txt
-
-# 2. 设置环境变量
+# 1. 复制环境变量
 cp .env.example .env
-# 编辑.env文件，设置API密钥
 
-# 3. 运行系统
-python main.py
+# 2. 一键启动 (包含前端、后端、DB、Redis)
+docker-compose up -d --build
 ```
+启动后访问：`http://localhost:3000`
 
-### 方法3：交互式启动
+### 3. 方式二：Standalone 一体化镜像部署
+如果你希望“只拉取一个镜像就能运行”，直接使用我们预构建的镜像（无需 Nginx）：
 ```bash
-# 提供图形化菜单和配置检查
-python start_project.py
-```
+# 从 GHCR 直接拉取 (需替换为你的镜像地址)
+docker pull ghcr.io/mocuishlei/aischool-standalone:latest
 
-### 方法4：Docker运行
+# 运行 (自带 SQLite，零配置)
+docker run -d -p 8000:8000 --name aischool-app ghcr.io/mocuishlei/aischool-standalone:latest
+```
+访问地址：`http://localhost:8000`
+
+---
+
+## ⚙️ 模型配置
+部署成功后，进入界面右侧菜单 **“模型配置”**：
+- 设置 **Base URL** (例如 `https://api.deepseek.com/v1`)
+- 设置 **API Key**
+- 点击 **“测试连接”** 验证模型是否响应。
+
+---
+
+## 📄 开发者说明
+如果你想基于后端二次开发（如开发小程序）：
+- 请查阅界面中的 **“API 文档”**。
+- 后端 API 默认运行在 `8000` 端口。
+
+## 🔧 开发调试 (本地运行)
 ```bash
-# 构建镜像
-docker build -t aischool .
+# 后端
+pip install -r requirements.txt
+python -m uvicorn api.main:app --reload
 
-# 运行容器
-docker run -p 8000:8000 --env-file .env aischool
+# 前端
+cd frontend
+npm install
+npm run dev
 ```
-
-## 🔧 模型支持
-
-### 默认配置（DeepSeek）
-- 模型：`deepseek-chat`
-- API：`https://api.deepseek.com/v1`
-- 自动使用OpenClaw的API密钥
-
-### 支持的其他模型
-- **OpenAI**: GPT-4, GPT-3.5
-- **本地模型**: Llama, Qwen (通过Ollama)
-- **Anthropic**: Claude
-
-### 配置切换
-编辑 `.env` 文件：
-```env
-LLM_PROVIDER=deepseek  # deepseek, openai, local
-DEEPSEEK_API_KEY=your_key
-OPENAI_API_KEY=your_key
-```
-
-## 功能特性
-- 🎯 个性化学习路径规划
-- 📚 多学科支持（数学、编程、语言等）
-- 🔄 自适应难度调整
-- 💾 学习进度持久化存储
-- 📊 学习效果可视化分析
