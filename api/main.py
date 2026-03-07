@@ -24,14 +24,10 @@ load_dotenv()
 
 app = FastAPI(title="AI School API", description="完整 AI 课堂系统", version="2.0.0")
 
-# CORS — 允许所有本地开发端口
+# CORS — 允许所有访问（支持小程序迁移与外部部署）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000", "http://localhost:3001", "http://localhost:3002",
-        "http://localhost:5173", "http://localhost:5174",
-        "http://127.0.0.1:3000", "http://127.0.0.1:3001", "http://127.0.0.1:5173",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
