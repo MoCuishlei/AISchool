@@ -5,8 +5,11 @@
 import sys
 import os
 
-# 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 添加项目根目录和 backend 目录到 Python 路径
+script_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(script_dir)
+backend_dir = os.path.join(root_dir, "backend")
+sys.path.append(backend_dir)
 
 # 使用当前OpenClaw会话的模型配置
 # 从环境变量或默认配置获取
@@ -24,8 +27,8 @@ if api_key and api_key != "your_openai_api_key_here":
 else:
     print("⚠️  未检测到API密钥，使用演示模式")
 
-from core.learning_crew import LearningCrew
-from config.llm_config import LLMConfig
+from backend.core.learning_crew import LearningCrew
+from backend.config.llm_config import LLMConfig
 
 def demo_learning_session():
     """演示完整学习会话"""

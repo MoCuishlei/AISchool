@@ -21,7 +21,7 @@
         <div class="progress-time">已用时 {{ lessonLoadingTime }} 秒</div>
       </div>
       <div v-else class="lesson-card">
-        <div class="lesson-content" v-html="renderedContent" />
+        <ContentRenderer :content="lessonContent" />
 
         <!-- 提问区 -->
         <div class="qa-section">
@@ -44,7 +44,9 @@
               <!-- 答 -->
               <div class="qa-msg assistant">
                 <span class="role-badge">老师</span>
-                <div class="msg-content" v-html="renderMd(pair.answer)" />
+                <div class="msg-content">
+                  <ContentRenderer :content="pair.answer" />
+                </div>
               </div>
             </div>
           </div>
@@ -185,6 +187,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSession, startLesson, askQuestion as apiAsk, startQuiz as apiStartQuiz, startQuizStream, submitQuiz as apiSubmitQuiz, getSessionQuizzes } from '@/api/learning'
 import { ArrowLeft, Loading, Delete, Clock } from '@element-plus/icons-vue'
+import ContentRenderer from '@/components/ContentRenderer.vue'
 
 const route = useRoute()
 const sessionId = Number(route.params.sessionId)
@@ -235,8 +238,6 @@ const attemptNumber = ref(1)
 
 import { renderMd } from '@/utils/markdown'
 
-const renderedContent = ref('')
-
 // 将扁平的问答历史数组按对部分起来
 // [{role:'user',...}, {role:'assistant',...}, ...] -> [{question, answer}, ...]
 const qaPairs = computed(() => {
@@ -276,7 +277,6 @@ onMounted(async () => {
     conversationId.value = res.conversation_id
     lessonContent.value = res.lesson_content
     itemTitle.value = res.item_title
-    renderedContent.value = renderMd(res.lesson_content)
     qaHistory.value = res.history || []
     attemptNumber.value = res.attempt || 1
   } catch (e: any) {
@@ -449,6 +449,43 @@ async function openHistory() {
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.content-block {
+  margin-bottom: 24px;
+}
+
+.block-wrapper {
+  margin: 20px 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.code-wrapper {
+  .code-alert {
+    margin-bottom: 8px;
+    border-radius: 8px;
+  }
+}
+
+.tree-wrapper {
+  background: white;
+  border: 1px solid #e2e8f0;
+  padding: 16px;
+  .tree-header { 
+    font-size: 14px; font-weight: 700; color: #64748b; 
+    margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;
+  }
+}
+
+.math-wrapper {
+  .math-card {
+    border-radius: 16px;
+    :deep(.el-card__body) {
+      display: flex; justify-content: center; padding: 32px;
+      background: linear-gradient(to bottom, #ffffff, #f8fafc);
+    }
+  }
+}
+
 .lesson-card {
   background: white; border-radius: 16px; padding: 28px;
   box-shadow: 0 2px 12px rgba(0,0,0,.06);
@@ -474,8 +511,6 @@ async function openHistory() {
     :deep(li) { margin: 4px 0; }
   }
 
-  :deep(code) { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #d63384; }
-  :deep(pre) { background: #1e293b; color: #e2e8f0; padding: 14px 18px; border-radius: 10px; margin: 12px 0; overflow-x: auto; }
   :deep(strong) { color: #1e40af; }
   :deep(hr) { border: none; border-top: 1px solid #e2e8f0; margin: 16px 0; }
 
@@ -483,17 +518,6 @@ async function openHistory() {
     border-left: 4px solid #8b5cf6; background: #f5f3ff;
     padding: 10px 16px; border-radius: 0 8px 8px 0; margin: 12px 0;
     color: #4c1d95;
-  }
-
-  /* KaTeX 运算公式的格式修正 */
-  :deep(.katex-display) {
-    margin: 1em 0;
-    text-align: center;
-    overflow-x: auto;
-    padding: 4px 0;
-  }
-  :deep(.katex) {
-    font-size: 1.05em;
   }
 }
 

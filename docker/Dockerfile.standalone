@@ -17,16 +17,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制后端依赖并安装
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制后端代码
+# 复制所有代码
 COPY . .
 
+# 设置 PYTHONPATH
+ENV PYTHONPATH=/app/backend
+
 # 从前端构建阶段复制产物到后端静态目录
-# api/main.py 已经配置为从 api/static 目录读取
-RUN mkdir -p api/static
-COPY --from=frontend-build /app/frontend/dist/ api/static/
+# backend/api/main.py 配置为从 static 目录读取（如果适用，或者由 uvicorn 挂载）
+RUN mkdir -p backend/api/static
+COPY --from=frontend-build /app/frontend/dist/ backend/api/static/
 
 EXPOSE 8000
 
@@ -34,4 +37,5 @@ EXPOSE 8000
 ENV DATABASE_URL=sqlite:///./aischool.db
 ENV RUNNING_IN_DOCKER=true
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 运行应用 (注意路径)
+CMD ["uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

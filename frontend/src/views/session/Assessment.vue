@@ -37,14 +37,18 @@
           <el-tag size="small" :type="diffTag(currentQ.difficulty)">{{ currentQ.difficulty }}</el-tag>
           <el-tag size="small" plain>{{ currentQ.domain }}</el-tag>
         </div>
-        <div class="q-text" v-html="renderMd((currentIdx + 1) + '. ' + currentQ.question)" />
+        <div class="q-text">
+          <ContentRenderer :content="(currentIdx + 1) + '. ' + currentQ.question" />
+        </div>
 
         <!-- 选择题 -->
         <div v-if="currentQ.type === 'choice'" class="choice-options">
           <div v-for="opt in currentQ.options" :key="opt"
             class="option" :class="{selected: answers[currentIdx] === opt[0]}"
             @click="answers[currentIdx] = opt[0]; autoSave()">
-            <span v-html="renderMd(opt)" />
+            <div class="option-content">
+              <ContentRenderer :content="opt" />
+            </div>
           </div>
         </div>
 
@@ -116,7 +120,9 @@
       <!-- AI 评语 -->
       <div class="report-section">
         <h3>📋 AI 评语</h3>
-        <div class="report-content" v-html="renderMd(assessmentReport)" />
+        <div class="report-content">
+          <ContentRenderer :content="assessmentReport" />
+        </div>
       </div>
 
       <!-- 各领域熟练度 -->
@@ -153,7 +159,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getSession, startAssessmentStream, startAssessment as apiStart, submitAssessment as apiSubmit, saveAssessmentAnswers } from '@/api/learning'
 import { Loading } from '@element-plus/icons-vue'
-import { renderMd } from '@/utils/markdown'
+import ContentRenderer from '@/components/ContentRenderer.vue'
 
 const route = useRoute()
 const router = useRouter()

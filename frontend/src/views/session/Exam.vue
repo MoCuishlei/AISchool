@@ -47,7 +47,9 @@
           <el-tag size="small" plain>{{ questions[currentIdx]?.domain }}</el-tag>
           <span class="q-score">{{ questions[currentIdx]?.score_weight || 5 }}分</span>
         </div>
-        <div class="q-text" v-html="renderMd((currentIdx + 1) + '. ' + questions[currentIdx]?.question)" />
+        <div class="q-text">
+          <ContentRenderer :content="(currentIdx + 1) + '. ' + questions[currentIdx]?.question" />
+        </div>
 
         <div v-if="questions[currentIdx]?.type === 'choice'" class="choice-options">
           <div v-for="opt in questions[currentIdx].options" :key="opt"
@@ -100,7 +102,9 @@
           <p>{{ subject }}</p>
         </div>
       </div>
-      <div class="report-content" v-html="renderMd(examReport)" />
+      <div class="report-content">
+        <ContentRenderer :content="examReport" />
+      </div>
       <el-button type="primary" @click="$router.push(`/session/${sessionId}/syllabus`)">
         返回大纲
       </el-button>
@@ -114,6 +118,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSession, generateExamStream, submitExam as apiSubmit } from '@/api/learning'
 import { ArrowLeft, Loading } from '@element-plus/icons-vue'
+import ContentRenderer from '@/components/ContentRenderer.vue'
 
 const route = useRoute()
 const sessionId = Number(route.params.sessionId)
@@ -147,7 +152,6 @@ const diffTag = (d: string): "success" | "warning" | "danger" | "info" => {
   }
   return map[d] || 'info'
 }
-import { renderMd } from '@/utils/markdown'
 
 onMounted(async () => {
   const s: any = await getSession(sessionId)

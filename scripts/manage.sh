@@ -2,7 +2,8 @@
 set -e
 
 PROJECT_NAME="AISchool"
-COMPOSE_FILE="docker-compose.yml"
+# 假设脚本在 scripts/ 目录下运行，或者相对于项目根目录
+COMPOSE_FILE="../docker-compose.yml"
 
 # 自动检测 docker compose 命令
 if docker compose version &>/dev/null 2>&1; then
@@ -46,14 +47,14 @@ check_docker() {
 cmd_start() {
     check_docker
     echo "🚀 启动所有服务 (${PROJECT_NAME})..."
-    if [ ! -f ".env" ]; then
-        if [ -f ".env.example" ]; then
+    if [ ! -f "../backend/.env" ]; then
+        if [ -f "../backend/.env.example" ]; then
             echo "⚠️  未检测到 .env 文件，正在从 .env.example 复制..."
-            cp .env.example .env
-            echo "⚠️  请编辑 .env 文件配置 API 密钥后重新运行"
+            cp ../backend/.env.example ../backend/.env
+            echo "⚠️  请编辑 backend/.env 文件配置 API 密钥后重新运行"
             exit 0
         else
-            echo "[错误] 缺少 .env 文件，无法启动"
+            echo "[错误] 缺少 backend/.env 文件，无法启动"
             exit 1
         fi
     fi

@@ -7,57 +7,55 @@ const md = new MarkdownIt({
     breaks: true,
     linkify: true,
     highlight: (code: string, lang: string) => {
-        // 语法高亮：优先用指定语言，否则自动检测
-        if (lang && hljs.getLanguage(lang)) {
-            try {
-                const highlighted = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
-                return `<pre class="hljs-block"><code class="hljs language-${lang}">${highlighted}</code></pre>`
-            } catch { }
-        }
-        // 自动检测语言
-        try {
-            const result = hljs.highlightAuto(code)
-            return `<pre class="hljs-block"><code class="hljs">${result.value}</code></pre>`
-        } catch { }
-        // 降级纯文本
-        return `<pre class="hljs-block"><code class="hljs">${md.utils.escapeHtml(code)}</code></pre>`
+        const h = lang && hljs.getLanguage(lang)
+            ? hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+            : hljs.highlightAuto(code).value;
+
+        return `<div class="premium-code-block">
+            <div class="code-header">
+                <div class="controls"><span class="close"></span><span class="minimize"></span><span class="maximize"></span></div>
+                <div class="lang-badge">${lang || 'code'}</div>
+            </div>
+            <pre class="hljs-block"><code class="hljs ${lang ? 'language-' + lang : ''}">${h}</code></pre>
+        </div>`
     }
 })
 
 md.use(mk)
 
 /**
- * 将层级列表文本转换为 Mermaid 思维导图
+ * 将层级列表文本转换为 Premium UI 树形组件
  */
-function convertHierarchyToMermaid(text: string): string {
-    // 检查是否包含层级符号
-    if (!text.includes('├──') && !text.includes('└──')) return text
+function convertHierarchyToPremiumTree(text: string): string {
+    const lines = text.split('\n').filter(l => l.trim())
+    if (!lines.some(l => l.includes('├──') || l.includes('└──'))) return text
 
-    const lines = text.split('\n')
-    let root = '板书总结'
-    const nodes: string[] = []
+    let html = '<div class="tree-container">'
 
-    // 简单提取根节点
-    const firstLine = lines.find(l => l.trim().length > 0 && !l.includes('├') && !l.includes('└'))
-    if (firstLine) root = firstLine.replace(/[📝]/g, '').trim()
+    // 识别标题/根节点
+    const rootLine = lines[0]
+    if (!rootLine.includes('├') && !rootLine.includes('└')) {
+        html += `<div class="tree-root"><span class="node-icon">🎯</span>${rootLine.trim()}</div>`
+        lines.shift()
+    }
 
-    nodes.push(`mindmap\n  root((${root}))`)
-
+    html += '<div class="tree-content">'
     lines.forEach(line => {
-        if (line.includes('├──') || line.includes('└──')) {
-            // 提取内容
-            const content = line.replace(/[├└]──/g, '').trim()
-            if (content) {
-                // 根据缩进或符号简单处理层级
-                const indentCount = (line.match(/│/g) || []).length + 1
-                nodes.push(`${'  '.repeat(indentCount + 1)}${content}`)
-            }
+        const depth = (line.match(/│/g) || []).length + (line.includes('├──') || line.includes('└──') ? 1 : 0)
+        const content = line.replace(/[│├└]──/g, '').replace(/│/g, '').trim()
+        if (content) {
+            html += `
+                <div class="tree-node" style="margin-left: ${(depth - 1) * 20}px">
+                    <div class="node-content">
+                        <span class="node-icon">${content.includes('环境') || content.includes('系统') ? '💻' : '🔗'}</span>
+                        ${content}
+                    </div>
+                </div>`
         }
     })
 
-    if (nodes.length <= 1) return text // 转换失败回退
-
-    return `\n\n\`\`\`mermaid\n${nodes.join('\n')}\n\`\`\`\n\n`
+    html += '</div></div>'
+    return html
 }
 
 export function renderMd(text: string | null | undefined): string {
@@ -66,17 +64,17 @@ export function renderMd(text: string | null | undefined): string {
     try {
         let p = text
 
-        // 0. 特殊处理：层级板书转图形 (Mermaid)
+        // 0. 特殊处理：层级板书转 Premium Tree
         // 匹配包含层级符号的段落
-        const boardPattern = /(?:📝\s*)?板书总结[\s\S]*?(?:\n\n|\n$)/g
-        p = p.replace(boardPattern, (match) => {
-            return convertHierarchyToMermaid(match)
+        const treePattern = /((?:^|\n).*[Python|语法|变量|运算|模块].*(?:\n(?:[│├└]──|│).*)+)/g
+        p = p.replace(treePattern, (match) => {
+            return convertHierarchyToPremiumTree(match)
         })
 
-        // 1. 处理 \[ ... \] 和 \begin{...} ... \end{...} 为块级公式 $$
-        p = p.replace(/\\\[([\s\S]*?)\\\]/g, (_, p1) => `\n\n$$\n${p1.trim()}\n$$\n\n`)
+        // 1. 处理 \[ ... \] 和 \begin{...} ... \end{...} 为块级公式 $$ 并包裹在 Spotlight 容器中
+        p = p.replace(/\\\[([\s\S]*?)\\\]/g, (_, p1) => `\n\n<div class="formula-spotlight">\n\n$$\n${p1.trim()}\n$$\n\n</div>\n\n`)
             .replace(/\\begin\{([a-z*]+)\}([\s\S]*?)\\end\{\1\}/gi, (_, env, content) => {
-                return `\n\n$$\n\\begin{${env}}${content}\\end{${env}}\n$$\n\n`
+                return `\n\n<div class="formula-spotlight">\n\n$$\n\\begin{${env}}${content}\\end{${env}}\n$$\n\n</div>\n\n`
             })
             // 2. 将 \( ... \) 转换为行内公式 $
             .replace(/\\\(([\s\S]*?)\\\)/g, (_, p1) => `$${p1.trim()}$`)

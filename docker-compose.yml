@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15
@@ -34,10 +32,9 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
-      pull: false
+      dockerfile: docker/Dockerfile
     env_file:
-      - .env
+      - backend/.env
     environment:
       - DATABASE_URL=postgresql://postgres:password@db:5432/aischool
       - REDIS_URL=redis://redis:6379
@@ -63,7 +60,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:80"
+      - "80:80"
     depends_on:
       - backend
     restart: unless-stopped

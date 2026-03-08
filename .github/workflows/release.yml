@@ -46,7 +46,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile
+          file: docker/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ env.OWNER_LOWER }}/aischool-backend:latest
@@ -63,24 +63,7 @@ jobs:
             ghcr.io/${{ env.OWNER_LOWER }}/aischool-frontend:latest
             ghcr.io/${{ env.OWNER_LOWER }}/aischool-frontend:${{ env.VERSION }}
 
-      # 3. 构建一体化 Standalone 镜像
-      - name: Build and Push Standalone Image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.standalone
-          push: true
-          tags: |
-            ghcr.io/${{ env.OWNER_LOWER }}/aischool-standalone:latest
-            ghcr.io/${{ env.OWNER_LOWER }}/aischool-standalone:${{ env.VERSION }}
 
-      # 4. 打包镜像为离线文件 (.tar.gz)
-      - name: Save Docker Images as Artifacts
-        run: |
-          docker pull ghcr.io/${{ env.OWNER_LOWER }}/aischool-standalone:${{ env.VERSION }}
-          docker save \
-            ghcr.io/${{ env.OWNER_LOWER }}/aischool-standalone:${{ env.VERSION }} \
-            | gzip > aischool-standalone-${{ env.VERSION }}.tar.gz
 
       # 5. 创建 Git Tag 并提交 (仅手动触发时)
       - name: Create Git Tag
@@ -98,20 +81,18 @@ jobs:
           tag_name: ${{ env.VERSION }}
           name: Release ${{ env.VERSION }}
           files: |
-            aischool-standalone-${{ env.VERSION }}.tar.gz
             docker-compose.yml
             .env.example
           body: |
             AI School ${{ env.VERSION }} 发布包。
             
-            ### Standalone 模式 (推荐)
-            1. 下载 `aischool-standalone-${{ env.VERSION }}.tar.gz`。
-            2. 运行 `docker load -i aischool-standalone-${{ env.VERSION }}.tar.gz` 加载镜像。
-            3. 直接启动：`docker run -d -p 8000:8000 --name aischool-app ghcr.io/${{ env.OWNER_LOWER }}/aischool-standalone:${{ env.VERSION }}`。
+            ### 部署说明
+            1. 下载 `docker-compose.yml` 和 `.env.example`。
+            2. 将 `.env.example` 重命名为 `.env` 并配置相关密钥。
+            3. 运行 `docker-compose up -d` 启动服务。
             
-            ### Docker Compose 模式 (适合生产/集群)
-            1. 下载所有附件。
-            2. 配置 `.env`。
-            3. 运行 `docker-compose up -d`。
+            **镜像列表:**
+            - Frontend: `ghcr.io/${{ env.OWNER_LOWER }}/aischool-frontend:${{ env.VERSION }}`
+            - Backend: `ghcr.io/${{ env.OWNER_LOWER }}/aischool-backend:${{ env.VERSION }}`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

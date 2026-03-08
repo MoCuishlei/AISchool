@@ -14,7 +14,6 @@ import json
 from db.database import get_db, create_tables
 from db import crud
 from fastapi.responses import StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from core.direct_llm import direct_teach, direct_practice, generate_syllabus
 from core.assessment_llm import generate_assessment_questions, evaluate_assessment, generate_assessment_questions_stream
 from core.classroom_llm import start_lesson, ask_question, generate_mini_quiz, evaluate_quiz, generate_mini_quiz_stream
@@ -154,9 +153,26 @@ def start_assessment(session_id: int, db: Session = Depends(get_db)):
             "total": len(existing_record.questions),
         }
         
+    # 增加：检查主题维度的全局缓存
+    cached_questions = crud.get_assessment_cache(db, session.subject)
+    if cached_questions:
+        record = crud.create_assessment(db, session_id, cached_questions)
+        return {
+            "assessment_id": record.id,
+            "session_id": session_id,
+            "subject": session.subject,
+            "questions": cached_questions,
+            "total": len(cached_questions),
+            "cached": True
+        }
+
     questions = generate_assessment_questions(session.subject, count=10)
     if not questions:
         raise HTTPException(500, "生成题目失败，请重试")
+    
+    # 存入全局缓存
+    crud.set_assessment_cache(db, session.subject, questions)
+    
     record = crud.create_assessment(db, session_id, questions)
     return {
         "assessment_id": record.id,
@@ -194,10 +210,27 @@ def start_assessment_stream(session_id: int, db: Session = Depends(get_db)):
         from db.database import SessionLocal
         stream_db = SessionLocal()
         try:
+            # 增加：流式也先检查缓存
+            cached_qs = crud.get_assessment_cache(stream_db, subject)
+            if cached_qs:
+                record = crud.create_assessment(stream_db, session_id, cached_qs)
+                event = {
+                    "status": "done",
+                    "questions": cached_qs,
+                    "answers": [],
+                    "assessment_id": record.id,
+                    "total": len(cached_qs),
+                    "cached": True
+                }
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
+
             for event in generate_assessment_questions_stream(subject, count=10):
                 if event["status"] == "done":
                     questions = event.get("questions", [])
                     if questions:
+                        # 存入全局缓存
+                        crud.set_assessment_cache(stream_db, subject, questions)
                         record = crud.create_assessment(stream_db, session_id, questions)
                         event["assessment_id"] = record.id
                         event["total"] = len(questions)

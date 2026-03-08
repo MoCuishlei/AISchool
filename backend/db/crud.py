@@ -140,6 +140,27 @@ def create_assessment(db: Session, session_id: int, questions: list) -> Assessme
     return record
 
 
+def get_assessment_cache(db: Session, subject: str) -> Optional[list]:
+    """获取主题维度的评测题目缓存"""
+    key = f"assess_cache_{subject}"
+    val = get_config(db, key)
+    if val:
+        try:
+            import json
+            return json.loads(val)
+        except:
+            return None
+    return None
+
+
+def set_assessment_cache(db: Session, subject: str, questions: list):
+    """设置主题维度的评测题目缓存"""
+    key = f"assess_cache_{subject}"
+    import json
+    val = json.dumps(questions, ensure_ascii=False)
+    set_config(db, key, val, description=f"Assessment questions cache for {subject}")
+
+
 def complete_assessment(db: Session, session_id: int, answers: list,
                         proficiency: dict, report: str, overall_score: float = 0.0) -> AssessmentRecord:
     record = db.query(AssessmentRecord).filter(AssessmentRecord.session_id == session_id).first()

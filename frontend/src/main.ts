@@ -5,6 +5,8 @@ import router from './router'
 import './styles/main.scss'
 import './styles/katex-fix.scss'
 import 'highlight.js/styles/github-dark.css'
+import 'katex/dist/katex.min.css'
+import VueKatex from 'vue3-katex'
 
 // Element Plus
 import ElementPlus from 'element-plus'
@@ -25,6 +27,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(pinia)
 app.use(router)
 app.use(ElementPlus)
+app.use(VueKatex)
 
 // 挂载应用
 app.mount('#app')

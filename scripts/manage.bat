@@ -3,8 +3,9 @@ chcp 65001 >nul
 setlocal
 
 set PROJECT_NAME=AISchool
-set COMPOSE_FILE=docker-compose.yml
-set FRONTEND_DIR=frontend
+for %%i in ("%~dp0..") do set "BASE_DIR=%%~fi"
+set "COMPOSE_FILE=%BASE_DIR%\docker-compose.yml"
+set "FRONTEND_DIR=%BASE_DIR%\frontend"
 
 :: ========== 帮助信息 ==========
 if "%1"=="" goto :usage
@@ -45,21 +46,21 @@ goto :usage
 echo 🚀 启动所有服务 (%PROJECT_NAME%)...
 
 :: 检查 .env
-if not exist ".env" (
-    if exist ".env.example" (
+if not exist "%BASE_DIR%\backend\.env" (
+    if exist "%BASE_DIR%\backend\.env.example" (
         echo ⚠️  未检测到 .env 文件，正在从 .env.example 复制...
-        copy .env.example .env >nul
-        echo ⚠️  请编辑 .env 文件配置 API 密钥后重新运行
+        copy "%BASE_DIR%\backend\.env.example" "%BASE_DIR%\backend\.env" >nul
+        echo ⚠️  请编辑 backend\.env 文件配置 API 密钥后重新运行
         exit /b 0
     ) else (
-        echo [错误] 缺少 .env 文件，无法启动
+        echo [错误] 缺少 backend\.env 文件，无法启动
         exit /b 1
     )
 )
 
 :: 启动后端 Docker 服务
 echo 🐳 启动后端服务 (db + redis + backend)...
-%COMPOSE_CMD% -f %COMPOSE_FILE% up --build -d
+%COMPOSE_CMD% -f "%COMPOSE_FILE%" up --build -d
 if errorlevel 1 (
     echo [错误] 后端服务启动失败，请检查上方日志
     exit /b 1
@@ -85,7 +86,7 @@ goto :end
 echo 🛑 停止所有服务...
 
 :: 停止后端
-%COMPOSE_CMD% -f %COMPOSE_FILE% down
+%COMPOSE_CMD% -f "%COMPOSE_FILE%" down
 
 :: 停止前端（杀掉占用 3000 端口的进程）
 echo 停止前端开发服务器 (端口 3000)...
@@ -99,11 +100,11 @@ goto :end
 :: ========== restart ==========
 :restart
 echo 🔄 重启所有服务...
-%COMPOSE_CMD% -f %COMPOSE_FILE% down
+%COMPOSE_CMD% -f "%COMPOSE_FILE%" down
 for /f "tokens=5" %%a in ('netstat -aon ^| find ":3000 " ^| find "LISTENING" 2^>nul') do (
     taskkill /F /PID %%a >nul 2>&1
 )
-%COMPOSE_CMD% -f %COMPOSE_FILE% up --build -d
+%COMPOSE_CMD% -f "%COMPOSE_FILE%" up --build -d
 call :frontend_start
 echo ✅ 所有服务已重启
 goto :end
@@ -113,32 +114,34 @@ goto :end
 echo 📊 当前服务状态：
 echo.
 echo [后端 Docker 服务]
-%COMPOSE_CMD% -f %COMPOSE_FILE% ps
+%COMPOSE_CMD% -f "%COMPOSE_FILE%" ps
 echo.
 echo [前端开发服务器 (端口 3000)]
 netstat -aon | find ":3000 " | find "LISTENING" >nul 2>&1
-if errorlevel 1 (
-    echo   ❌ 前端未运行
-) else (
-    echo   ✅ 前端运行中 ^(http://localhost:3000^)
-)
+if errorlevel 1 goto :status_frontend_off
+echo   ✅ 前端运行中 ^(http://localhost:3000^)
+goto :end
+
+:status_frontend_off
+echo   ❌ 前端未运行
 goto :end
 
 :: ========== logs ==========
 :logs
-if "%2"=="" (
-    echo 📋 显示所有后端服务日志 (Ctrl+C 退出)...
-    %COMPOSE_CMD% -f %COMPOSE_FILE% logs -f
-) else (
-    echo 📋 显示 %2 日志 (Ctrl+C 退出)...
-    %COMPOSE_CMD% -f %COMPOSE_FILE% logs -f %2
-)
+if "%~2"=="" goto :logs_all
+echo 📋 显示 %~2 日志 (Ctrl+C 退出)...
+%COMPOSE_CMD% -f "%COMPOSE_FILE%" logs -f %2
+goto :end
+
+:logs_all
+echo 📋 显示所有后端服务日志 (Ctrl+C 退出)...
+%COMPOSE_CMD% -f "%COMPOSE_FILE%" logs -f
 goto :end
 
 :: ========== build ==========
 :build
 echo 🔨 重新构建后端镜像...
-%COMPOSE_CMD% -f %COMPOSE_FILE% build --no-cache
+%COMPOSE_CMD% -f "%COMPOSE_FILE%" build --no-cache
 echo ✅ 构建完成
 goto :end
 
@@ -152,17 +155,17 @@ goto :end
 echo 🌐 启动前端开发服务器...
 if not exist "%FRONTEND_DIR%\node_modules" (
     echo   📦 首次运行，安装前端依赖（请稍候）...
-    pushd %FRONTEND_DIR%
+    pushd "%FRONTEND_DIR%"
     call npm install
     call npm install -D sass-embedded
     popd
 ) else if not exist "%FRONTEND_DIR%\node_modules\sass-embedded" (
     echo   📦 安装 sass-embedded...
-    pushd %FRONTEND_DIR%
+    pushd "%FRONTEND_DIR%"
     call npm install -D sass-embedded
     popd
 )
-start "AISchool Frontend" cmd /k "cd /d %~dp0%FRONTEND_DIR% && npm run dev"
+start "AISchool Frontend" cmd /k "cd /d "%FRONTEND_DIR%" && npm run dev"
 echo   ✅ 前端已在新窗口启动 (http://localhost:3000)
 exit /b 0
 
