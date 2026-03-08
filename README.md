@@ -26,11 +26,19 @@ docker compose up -d
 ```
 访问地址：`http://服务器IP` (默认 80 端口)。
 
+### 1. 极简部署 (Standalone - 仅需一个镜像)
+如果您希望“秒级”启动，无需配置 Nginx 和多个容器，可以使用我们的一体化镜像：
+```bash
+docker run -d -p 8000:8000 \
+  -e LLM_API_KEY=您的密钥 \
+  --name aischool-app \
+  ghcr.io/mocuishlei/aischool-standalone:latest
+```
+访问地址：`http://服务器IP:8000`
+
 ---
 
-## 🏗️ 详细部署
-
-### 1. 编译安装 (本地开发)
+## 🏗️ 详细部署 (生产推荐)
 如果您想修改代码或在本地运行：
 ```bash
 git clone https://github.com/MoCuishlei/AISchool.git
@@ -41,7 +49,8 @@ docker compose up -d --build
 ### 2. 镜像说明
 我们现在采用 **双镜像分离架构** 以获得更好的生产性能：
 - **前端镜像**: `ghcr.io/mocuishlei/aischool-frontend:latest` (Nginx)
-- **后端镜像**: `ghcr.io/mocuishlei/aischool-backend:latest` (FastAPI)
+- **后端镜像**: `ghcr.io/mocuishlei/aischool-backend:latest` (API)
+- **一体化镜像**: `ghcr.io/mocuishlei/aischool-standalone:latest` (全功能内置)
 
 ---
 

@@ -63,6 +63,17 @@ jobs:
             ghcr.io/${{ env.OWNER_LOWER }}/aischool-frontend:latest
             ghcr.io/${{ env.OWNER_LOWER }}/aischool-frontend:${{ env.VERSION }}
 
+      # 3. 构建一体化 Standalone 镜像 (极简部署 - 仅需一个镜像)
+      - name: Build and Push Standalone Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.standalone
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER_LOWER }}/aischool-standalone:latest
+            ghcr.io/${{ env.OWNER_LOWER }}/aischool-standalone:${{ env.VERSION }}
+
 
 
       # 5. 创建 Git Tag 并提交 (仅手动触发时)

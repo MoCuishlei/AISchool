@@ -14,6 +14,7 @@ import json
 from db.database import get_db, create_tables
 from db import crud
 from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from core.direct_llm import direct_teach, direct_practice, generate_syllabus
 from core.assessment_llm import generate_assessment_questions, evaluate_assessment, generate_assessment_questions_stream
 from core.classroom_llm import start_lesson, ask_question, generate_mini_quiz, evaluate_quiz, generate_mini_quiz_stream
@@ -833,6 +834,15 @@ def get_dashboard_analytics(session_id: int, db: Session = Depends(get_db)):
         "mastery_distribution": mastery_dist,
         "projected_score": round(projected_score, 1)
     }
+
+
+# ════════════════════════════════════════════════════════
+# 静态文件挂载 (仅用于 Standalone 单镜像部署模式)
+# ════════════════════════════════════════════════════════
+
+static_path = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_path):
+    app.mount("/", StaticFiles(directory=static_path, html=True), name="static")
 
 
 if __name__ == "__main__":
