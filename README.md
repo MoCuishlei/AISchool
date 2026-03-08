@@ -5,40 +5,43 @@
 ## 🎯 核心特性
 - **多端适配**: 完美支持手机、平板、PC 访问。
 - **自定义模型**: 界面化配置 OpenAI 兼容接口（如 DeepSeek, GPT-4）。
-- **全栈 Docker 化**: 支持一键启动及单镜像极简部署。
-- **自动化发布**: 集成 GitHub Actions 流水线。
+- **全栈 Docker 化**: 支持双镜像分离部署，性能更优。
+- **自动化发布**: 集成 GitHub Actions 流水线，自动推送至 GHCR。
 
 ---
 
-## 🚀 部署指南
+## 🚀 快速开始 (Linux Docker)
 
-### 1. 克隆仓库
+仅需两步即可在 Linux 服务器上部署：
+
+```bash
+# 1. 下载部署配置文件
+mkdir aischool && cd aischool
+wget https://raw.githubusercontent.com/MoCuishlei/AISchool/main/docker-compose.yml
+wget https://raw.githubusercontent.com/MoCuishlei/AISchool/main/.env.example -O .env
+
+# 2. 启动服务
+# 请先编辑 .env 文件配置您的 API Key
+docker compose up -d
+```
+访问地址：`http://服务器IP` (默认 80 端口)。
+
+---
+
+## 🏗️ 详细部署
+
+### 1. 编译安装 (本地开发)
+如果您想修改代码或在本地运行：
 ```bash
 git clone https://github.com/MoCuishlei/AISchool.git
 cd AISchool
+docker compose up -d --build
 ```
 
-### 2. 方式一：Docker Compose 全栈部署 (推荐)
-适合开发和生产环境，包含数据库和 Redis 缓存。
-```bash
-# 1. 复制环境变量
-cp .env.example .env
-
-# 2. 一键启动 (包含前端、后端、DB、Redis)
-docker-compose up -d --build
-```
-启动后访问：`http://localhost:3000`
-
-### 3. 方式二：Standalone 一体化镜像部署
-如果你希望“只拉取一个镜像就能运行”，直接使用我们预构建的镜像（无需 Nginx）：
-```bash
-# 从 GHCR 直接拉取 (需替换为你的镜像地址)
-docker pull ghcr.io/mocuishlei/aischool-standalone:latest
-
-# 运行 (自带 SQLite，零配置)
-docker run -d -p 8000:8000 --name aischool-app ghcr.io/mocuishlei/aischool-standalone:latest
-```
-访问地址：`http://localhost:8000`
+### 2. 镜像说明
+我们现在采用 **双镜像分离架构** 以获得更好的生产性能：
+- **前端镜像**: `ghcr.io/mocuishlei/aischool-frontend:latest` (Nginx)
+- **后端镜像**: `ghcr.io/mocuishlei/aischool-backend:latest` (FastAPI)
 
 ---
 
