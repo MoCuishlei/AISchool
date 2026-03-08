@@ -71,6 +71,7 @@ class AssessmentRecord(Base):
     questions = Column(JSON)                                # 题目列表
     answers = Column(JSON)                                  # 学生答案
     proficiency_result = Column(JSON)                       # {domain: score, ...}
+    question_results = Column(JSON)                         # 详细对错与解析列表
     ai_report = Column(Text)                                # AI 生成的分析报告
     completed = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())

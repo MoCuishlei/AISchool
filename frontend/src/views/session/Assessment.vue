@@ -1,8 +1,13 @@
 <template>
   <div class="assessment">
+    <!-- 初始加载中 -->
+    <div v-if="isInitialLoading" class="initial-loading">
+      <el-icon class="spin" style="font-size:48px;color:#8b5cf6"><Loading /></el-icon>
+      <p>正在加载测评进度...</p>
+    </div>
 
     <!-- 开始前 -->
-    <div v-if="phase === 'intro'" class="intro-card">
+    <div v-else-if="phase === 'intro'" class="intro-card">
       <div class="intro-icon">🎯</div>
       <h2>入学评测</h2>
       <p>AI 将出 10 道诊断题，评估你在「{{ subject }}」各领域的基础，生成个性化学习大纲</p>
@@ -12,18 +17,28 @@
         <li>🎯 目的是帮 AI 了解你，没有"不及格"</li>
         <li>📸 简答题支持文字或拍照作答</li>
       </ul>
-      <el-button v-if="!isGenerating" type="primary" size="large" @click="startAssessment" class="start-btn">
-        {{ hasPreviousProgress ? '继续评测' : '开始评测' }}
+      <div class="assessment-settings" v-if="!isGenerating && hasPreviousProgress">
+        <el-button type="info" plain size="small" @click="startAssessment(true)">
+          ♻️ 换一批题目
+        </el-button>
+      </div>
+
+      <el-button type="primary" size="large" @click="startAssessment(false)" class="start-btn" :loading="isGenerating" :disabled="isGenerating">
+        {{ isGenerating ? '正在为你生成测评题目...' : (hasPreviousProgress ? '继续评测' : '开始评测') }}
       </el-button>
-      <div v-else class="generating-progress">
+      
+      <div v-if="isGenerating" class="generating-progress">
         <el-icon class="spin"><Loading /></el-icon>
         <div class="progress-text">{{ loadingMessages[loadingIndex] }}</div>
         <div class="progress-time">已用时 {{ loadingTime }} 秒</div>
+        <div v-if="streamText" class="stream-box">
+          <pre>{{ streamText }}</pre>
+        </div>
       </div>
     </div>
 
     <!-- 答题中 -->
-    <div v-if="phase === 'answering'" class="answering">
+    <div v-else-if="phase === 'answering'" class="answering">
       <div class="progress-header">
         <div class="progress-info">
           <span class="subject-tag">{{ subject }}</span>
@@ -83,14 +98,14 @@
     </div>
 
     <!-- 正在批改 -->
-    <div v-if="phase === 'evaluating'" class="evaluating-state">
+    <div v-else-if="phase === 'evaluating'" class="evaluating-state">
       <el-icon class="spin" style="font-size:48px;color:#8b5cf6"><Loading /></el-icon>
       <h3>AI 正在分析你的答题情况...</h3>
       <p>约 15-30 秒，请稍候</p>
     </div>
 
     <!-- 评测结果 -->
-    <div v-if="phase === 'result'" class="result-card">
+    <div v-else-if="phase === 'result'" class="result-card">
       <div class="result-header">
         <div class="result-icon">🎉</div>
         <h2>评测完成！</h2>
@@ -119,9 +134,30 @@
 
       <!-- AI 评语 -->
       <div class="report-section">
-        <h3>📋 AI 评语</h3>
+        <h3>📋 AI 报告摘要</h3>
         <div class="report-content">
           <ContentRenderer :content="assessmentReport" />
+        </div>
+      </div>
+
+      <!-- 题目回顾 -->
+      <div v-if="questionResults && questionResults.length > 0" class="review-section">
+        <h3>🔍 题目对错详情</h3>
+        <div class="review-list">
+          <div v-for="(res, idx) in questionResults" :key="idx" class="review-item"
+            :class="res.is_correct ? 'correct' : 'incorrect'">
+            <div class="review-q-header">
+              <span class="res-idx">#{{ idx + 1 }}</span>
+              <span class="res-status-tag" :class="res.is_correct ? 'pass' : 'fail'">
+                {{ res.is_correct ? '正确' : '待提升' }}
+              </span>
+              <span class="res-score">{{ res.score }}分</span>
+            </div>
+            <div class="res-q-text"><strong>问：</strong>{{ questions[idx]?.question || '题目已失效' }}</div>
+            <div class="res-a-text"><strong>你的答案：</strong>{{ answers[idx] }}</div>
+            <div v-if="res.feedback" class="res-feedback">📝 点评：{{ res.feedback }}</div>
+            <div v-if="res.explanation" class="res-explanation">💡 解析：{{ res.explanation }}</div>
+          </div>
         </div>
       </div>
 
@@ -147,7 +183,7 @@
       </div>
 
       <el-button type="primary" size="large" class="goto-syllabus-btn" @click="goToSyllabus">
-        查看个性化学习大纲 →
+        进入个性化学习大纲 →
       </el-button>
     </div>
 
@@ -171,7 +207,9 @@ const isSubmitting = ref(false)
 const assessmentReport = ref('')
 const proficiency = ref<Record<string, number>>({})
 const overallScore = ref(0)
+const questionResults = ref<any[]>([])
 const hasPreviousProgress = ref(false)
+const isInitialLoading = ref(true)
 
 const filteredProficiencyCount = computed(() => 
   Object.keys(proficiency.value).filter(k => k !== '__overall__').length
@@ -183,6 +221,7 @@ const loadingIndex = ref(0)
 const loadingTime = ref(0)
 let timer: any = null
 const streamText = ref('')
+const openCount = ref(3) // 默认 3 道简答，包含 1 中 1 难
 
 const questions = ref<any[]>([])
 const answers = ref<string[]>([])
@@ -203,24 +242,77 @@ const diffTag = (d: string): "success" | "warning" | "danger" | "info" => {
 }
 
 onMounted(async () => {
+  window.addEventListener('visibilitychange', handleVisibilityChange)
   try {
     const s: any = await getSession(sessionId)
     subject.value = s.subject
-    // 如果已经有大纲条目，说明测评已完成，直接跳到大纲
+    
+    // 1. 如果已经有大纲条目，说明测评彻底完成并生成了大纲，跳到大纲页
     if (s.syllabus_items?.length > 0) {
       router.replace(`/session/${sessionId}/syllabus`)
       return
     }
-    // 检查是否有未完成的进度
-    if (s.assessment && s.assessment.has_questions) {
-      hasPreviousProgress.value = true
+
+    // 2. 检查测评记录
+    if (s.assessment) {
+      // 如果已完成测评（但可能还没生成大纲或还在结果页刷新的）
+      if (s.assessment.completed) {
+        // 加载已保存的结果
+        questions.value = s.assessment.questions || []
+        answers.value = s.assessment.answers || []
+        proficiency.value = s.assessment.proficiency_result || {}
+        overallScore.value = proficiency.value['__overall__'] || 0
+        assessmentReport.value = s.assessment.ai_report || ''
+        questionResults.value = s.assessment.question_results || []
+        phase.value = 'result'
+        return
+      }
+
+      // 如果未完成但有题目，自动进入答题状态或生成状态
+      if (s.assessment.has_questions || s.assessment.id) {
+        hasPreviousProgress.value = true
+        // 自动触发开始逻辑以恢复进度
+        await startAssessment()
+        
+        // 【优化】智能恢复题号：定位到第一个未答题
+        if (questions.value.length > 0) {
+          const firstEmpty = answers.value.findIndex(a => !a || !a.trim())
+          if (firstEmpty !== -1) {
+            currentIdx.value = firstEmpty
+          } else {
+            // 如果都答了但没提交，定位到最后一题
+            currentIdx.value = questions.value.length - 1
+          }
+        }
+      }
     }
-  } catch {}
+  } catch (e) {
+    console.error('Mount check failed:', e)
+  } finally {
+    isInitialLoading.value = false
+  }
 })
 
-async function startAssessment() {
+import { onUnmounted } from 'vue'
+onUnmounted(() => {
+  window.removeEventListener('visibilitychange', handleVisibilityChange)
+  autoSave() // 离开页面前尝试保存一次
+})
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    autoSave()
+  }
+}
+
+async function startAssessment(forceNew = false) {
   isGenerating.value = true
   streamText.value = ''
+  
+  if (forceNew) {
+    questions.value = []
+    answers.value = []
+  }
   
   // 启动动态提示定时器
   loadingIndex.value = 0
@@ -236,7 +328,7 @@ async function startAssessment() {
     // 先尝试流式 API
     const res: any = await startAssessmentStream(sessionId, (chunk) => {
       streamText.value += chunk
-    })
+    }, openCount.value, forceNew)
     if (res && res.questions && res.questions.length > 0) {
       questions.value = res.questions
       // 这里的 answers 如果后端返回了（断点续传），就用原来的；没有就新建空数组
@@ -246,9 +338,17 @@ async function startAssessment() {
         if (idx < answers.value.length) answers.value[idx] = val
       })
       
-      photoFiles.value = new Array(questions.value.length).fill(null)
       photoUrls.value = new Array(questions.value.length).fill('')
-      phase.value = 'answering'
+      
+      if (res.completed) {
+        proficiency.value = res.proficiency_result || {}
+        overallScore.value = proficiency.value['__overall__'] || 0
+        assessmentReport.value = res.ai_report || ''
+        questionResults.value = res.question_results || []
+        phase.value = 'result'
+      } else {
+        phase.value = 'answering'
+      }
       return
     }
     // 流式返回 null 或空，回退到普通 API
@@ -259,7 +359,7 @@ async function startAssessment() {
 
   // 回退：使用普通 API
   try {
-    const r: any = await apiStart(sessionId)
+    const r: any = await apiStart(sessionId, openCount.value, forceNew)
     questions.value = r.questions || []
     
     const restoredAnswers = r.answers || []
@@ -270,7 +370,16 @@ async function startAssessment() {
 
     photoFiles.value = new Array(questions.value.length).fill(null)
     photoUrls.value = new Array(questions.value.length).fill('')
-    phase.value = 'answering'
+    
+    if (r.completed) {
+      proficiency.value = r.proficiency_result || {}
+      overallScore.value = proficiency.value['__overall__'] || 0
+      assessmentReport.value = r.ai_report || ''
+      questionResults.value = r.question_results || []
+      phase.value = 'result'
+    } else {
+      phase.value = 'answering'
+    }
   } catch (e2: any) {
     console.error('评测加载失败:', e2)
   } finally { 
@@ -305,6 +414,7 @@ async function submitAssessment() {
     assessmentReport.value = result.report || ''
     proficiency.value = result.proficiency || {}
     overallScore.value = result.overall_score || proficiency.value['__overall__'] || 0
+    questionResults.value = result.question_results || []
     // 生成大纲（后台）
     const { generateSyllabusForSession } = await import('@/api/learning')
     await generateSyllabusForSession(sessionId, subject.value)
@@ -332,6 +442,10 @@ function goToSyllabus() {
   h2 { font-size: 24px; font-weight: 800; margin: 0 0 12px; }
   p { color: var(--color-text-secondary); margin-bottom: 24px; }
   .tips { text-align: left; display: block; max-width: 340px; margin: 0 auto 32px; li { margin-bottom: 8px; } }
+  .assessment-settings {
+    margin-bottom: 24px;
+    display: flex; justify-content: center;
+  }
   .start-btn { height: 48px; padding: 0 40px; font-size: 16px; border-radius: 12px; background: linear-gradient(135deg, #8b5cf6, #6d28d9); border: none; }
 }
 
@@ -468,5 +582,38 @@ function goToSyllabus() {
   height: 52px; font-size: 16px; border-radius: 14px; align-self: center;
   padding: 0 48px;
   background: linear-gradient(135deg, #8b5cf6, #6d28d9); border: none;
+}
+
+.initial-loading {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 100px 0; color: #64748b; font-size: 16px;
+}
+
+/* 题目回顾样式 */
+.review-section {
+  margin-top: 10px;
+  h3 { font-size: 16px; font-weight: 700; color: #1e293b; margin: 0 0 16px; }
+}
+.review-list { display: flex; flex-direction: column; gap: 16px; }
+.review-item {
+  padding: 20px; border-radius: 12px; border-left: 5px solid #ddd;
+  background: #fdfdfd; box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  &.correct { border-left-color: #10b981; background: #f0fdf4; }
+  &.incorrect { border-left-color: #ef4444; background: #fef2f2; }
+
+  .review-q-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+    .res-idx { font-weight: 800; color: #64748b; }
+    .res-status-tag {
+      padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 700;
+      &.pass { background: #dcfce7; color: #166534; }
+      &.fail { background: #fee2e2; color: #991b1b; }
+    }
+    .res-score { font-size: 13px; color: #64748b; margin-left: auto; }
+  }
+  .res-q-text { font-size: 14px; color: #1e293b; margin-bottom: 8px; line-height: 1.5; }
+  .res-a-text { font-size: 14px; color: #475569; margin-bottom: 12px; font-style: italic; }
+  .res-feedback { font-size: 13px; color: #4338ca; background: #e0e7ff; padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; }
+  .res-explanation { font-size: 13px; color: #059669; background: #ecfdf5; padding: 8px 12px; border-radius: 8px; }
 }
 </style>

@@ -88,15 +88,24 @@ def get_session_api(session_id: int, db: Session = Depends(get_db)):
     items = crud.get_syllabus_items(db, session_id)
     unlock = crud.get_exam_unlock_status(db, session_id)
     
-    # 获取未完成的测评记录（如果有）
+    # 获取测评记录（无论是否完成）
     assessment_info = None
     record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
-    if record and not record.completed:
+    if record:
         assessment_info = {
             "id": record.id,
+            "completed": record.completed,
             "has_questions": bool(record.questions),
             "answers_count": len(record.answers) if record.answers else 0
         }
+        if record.completed:
+            assessment_info.update({
+                "questions": record.questions,
+                "answers": record.answers,
+                "proficiency_result": record.proficiency_result,
+                "ai_report": record.ai_report,
+                "question_results": record.question_results
+            })
 
     return {
         "session_id": session.id,
@@ -145,14 +154,32 @@ def delete_session_api(session_id: int, db: Session = Depends(get_db)):
 # ════════════════════════════════════════════════════════
 
 @app.post("/assessment/start/{session_id}")
-def start_assessment(session_id: int, db: Session = Depends(get_db)):
+def start_assessment(session_id: int, open_count: int = 3, force_new: bool = False, db: Session = Depends(get_db)):
     session = crud.get_session(db, session_id)
     if not session:
         raise HTTPException(404, "会话不存在")
         
-    # 检查是否存在未完成的测评
+    # 如果强制刷新，清空该主题的全局缓存
+    if force_new:
+        print(f"DEBUG: force_new=True, clearing cache for {session.subject}")
+        crud.delete_config(db, f"assess_cache_{session.subject}")
+    
+    # 检查是否存在已完成或未完成的测评
     existing_record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
-    if existing_record and not existing_record.completed and existing_record.questions:
+    if existing_record and existing_record.questions and not force_new:
+        print(f"DEBUG: Found existing record for session {session_id}, returning it.")
+        if existing_record.completed:
+             return {
+                "assessment_id": existing_record.id,
+                "session_id": session_id,
+                "subject": session.subject,
+                "questions": existing_record.questions,
+                "answers": existing_record.answers or [],
+                "completed": True,
+                "proficiency_result": existing_record.proficiency_result,
+                "ai_report": existing_record.ai_report,
+                "question_results": existing_record.question_results
+            }
         return {
             "assessment_id": existing_record.id,
             "session_id": session_id,
@@ -165,6 +192,7 @@ def start_assessment(session_id: int, db: Session = Depends(get_db)):
     # 增加：检查主题维度的全局缓存
     cached_questions = crud.get_assessment_cache(db, session.subject)
     if cached_questions:
+        print(f"DEBUG: Found global cache for {session.subject}, assigning to session {session_id}")
         record = crud.create_assessment(db, session_id, cached_questions)
         return {
             "assessment_id": record.id,
@@ -175,7 +203,7 @@ def start_assessment(session_id: int, db: Session = Depends(get_db)):
             "cached": True
         }
 
-    questions = generate_assessment_questions(session.subject, count=10)
+    questions = generate_assessment_questions(session.subject, count=10, open_count=open_count)
     if not questions:
         raise HTTPException(500, "生成题目失败，请重试")
     
@@ -192,23 +220,38 @@ def start_assessment(session_id: int, db: Session = Depends(get_db)):
     }
 
 @app.post("/assessment/start_stream/{session_id}")
-def start_assessment_stream(session_id: int, db: Session = Depends(get_db)):
+def start_assessment_stream(session_id: int, open_count: int = 3, force_new: bool = False, db: Session = Depends(get_db)):
     session = crud.get_session(db, session_id)
     if not session:
         raise HTTPException(404, "会话不存在")
-        
-    # 断线重连：如果在这个 session_id 下已经有未完成的评测记录
+    
+    if force_new:
+        crud.delete_config(db, f"assess_cache_{session.subject}")
+        # 如果还要删除旧的 record
+        old_record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
+        if old_record:
+            db.delete(old_record)
+            db.commit()
+
+    # 断线重连
     existing_record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
-    if existing_record and not existing_record.completed and existing_record.questions:
-        # 直接由生成器立即返回完整的原有数据，不再请求大模型
+    if existing_record and existing_record.questions and not force_new:
+        # 如果已完成或已有题目，直接返回
         def quick_stream():
             event = {
                 "status": "done",
                 "questions": existing_record.questions,
                 "answers": existing_record.answers or [],
                 "assessment_id": existing_record.id,
+                "completed": existing_record.completed,
                 "total": len(existing_record.questions)
             }
+            if existing_record.completed:
+                event.update({
+                    "proficiency_result": existing_record.proficiency_result,
+                    "ai_report": existing_record.ai_report,
+                    "question_results": existing_record.question_results
+                })
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         return StreamingResponse(quick_stream(), media_type="text/event-stream")
     
@@ -234,7 +277,7 @@ def start_assessment_stream(session_id: int, db: Session = Depends(get_db)):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 return
 
-            for event in generate_assessment_questions_stream(subject, count=10):
+            for event in generate_assessment_questions_stream(subject, count=10, open_count=open_count):
                 if event["status"] == "done":
                     questions = event.get("questions", [])
                     if questions:
@@ -245,6 +288,7 @@ def start_assessment_stream(session_id: int, db: Session = Depends(get_db)):
                         event["total"] = len(questions)
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
+            import json
             traceback.print_exc()
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
         finally:
@@ -266,14 +310,15 @@ def submit_assessment(session_id: int, req: SubmitAssessmentRequest, db: Session
     if not record:
         raise HTTPException(404, "测评记录不存在，请先调用 /assessment/start")
 
-    proficiency, report, overall_score = evaluate_assessment(session.subject, record.questions, req.answers)
-    record = crud.complete_assessment(db, session_id, req.answers, proficiency, report, overall_score)
+    proficiency, report, overall_score, question_results = evaluate_assessment(session.subject, record.questions, req.answers)
+    record = crud.complete_assessment(db, session_id, req.answers, proficiency, report, overall_score, question_results)
 
     return {
         "session_id": session_id,
         "proficiency": proficiency,
         "report": report,
-        "overall_score": overall_score
+        "overall_score": overall_score,
+        "question_results": question_results
     }
 
 
@@ -325,7 +370,8 @@ def save_assessment_answers(session_id: int, req: dict, db: Session = Depends(ge
     """保存测评进度（中间答案）"""
     record = db.query(crud.AssessmentRecord).filter(crud.AssessmentRecord.session_id == session_id).first()
     if not record:
-        raise HTTPException(404, "测评记录不存在")
+        # 如果记录还没建立（还在生成中或者没点开始），静默返回成功，避免前端 log 报错
+        return {"status": "skipped", "message": "record not found yet"}
     if record.completed:
         raise HTTPException(400, "测评已完成，无法修改答案")
     
@@ -496,6 +542,7 @@ def classroom_start_quiz_stream(session_id: int, req: StartQuizRequest, db: Sess
                         event["attempt_number"] = attempt_number
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
+            import json
             traceback.print_exc()
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
         finally:
@@ -576,25 +623,33 @@ def get_session_quizzes(session_id: int, db: Session = Depends(get_db)):
         } for q in quizzes
     ]
 
-    # 加入入学测评记录
-    assessment = db.query(crud.AssessmentRecord).filter(
-        crud.AssessmentRecord.session_id == session_id,
-        crud.AssessmentRecord.completed == True
-    ).first()
+    # 获取当前学生的所有入学测评记录（全局可见）
+    current_session = db.query(crud.LearningSession).filter(crud.LearningSession.id == session_id).first()
+    if current_session:
+        # 查找该学生的所有已完成测评
+        all_assessments = db.query(crud.AssessmentRecord).join(crud.LearningSession).filter(
+            crud.LearningSession.student_id == current_session.student_id,
+            crud.AssessmentRecord.completed == True
+        ).all()
 
-    if assessment:
-        quiz_list.append({
-            "id": assessment.id,
-            "type": "assessment",
-            "item_title": "入学诊断测试",
-            "questions": assessment.questions,
-            "answers": assessment.answers,
-            "score": assessment.proficiency_result.get("__overall__", 0) if assessment.proficiency_result else 0,
-            "passed": True,
-            "ai_feedback": assessment.learning_report,
-            "attempt_number": 1,
-            "created_at": assessment.created_at.isoformat() if assessment.created_at else None
-        })
+        for assess in all_assessments:
+            # 避免重复（如果将来逻辑变了）
+            if any(q["id"] == assess.id and q["type"] == "assessment" for q in quiz_list):
+                continue
+                
+            quiz_list.append({
+                "id": assess.id,
+                "type": "assessment",
+                "item_title": f"入学诊断测试 ({assess.session.subject})",
+                "questions": assess.questions,
+                "answers": assess.answers,
+                "score": (assess.proficiency_result or {}).get("__overall__", 0),
+                "passed": True,
+                "ai_feedback": assess.ai_report,
+                "question_results": assess.question_results,
+                "attempt_number": 1,
+                "created_at": assess.created_at.isoformat() if assess.created_at else None
+            })
 
     # 重新按时间排序，确保入学测试在正确位置或按需排序
     # 这里我们保持倒序，入学测试通常是最后（最早）的一个

@@ -87,11 +87,11 @@ export const getStudentSessions = (studentName = '学习者') =>
     api.get(`/session/student/${encodeURIComponent(studentName)}`)
 
 // ── 入学测评 ──────────────────────────────────────────
-export const startAssessment = (sessionId: number) =>
-    api.post(`/assessment/start/${sessionId}`)
+export const startAssessment = (sessionId: number, openCount = 2, forceNew = false) =>
+    api.post(`/assessment/start/${sessionId}?open_count=${openCount}&force_new=${forceNew}`)
 
-export const startAssessmentStream = (sessionId: number, onChunk: (text: string) => void) =>
-    fetchStream(`/assessment/start_stream/${sessionId}`, {}, onChunk)
+export const startAssessmentStream = (sessionId: number, onChunk: (text: string) => void, openCount = 2, forceNew = false) =>
+    fetchStream(`/assessment/start_stream/${sessionId}?open_count=${openCount}&force_new=${forceNew}`, {}, onChunk)
 
 export const submitAssessment = (sessionId: number, answers: string[]) =>
     api.post(`/assessment/submit/${sessionId}`, { answers })

@@ -67,10 +67,15 @@ def update_session_progress(db: Session, session_id: int) -> float:
 
 
 def delete_session(db: Session, session_id: int) -> bool:
-    """级联册除会话（评估记录没有设置 cascade，因此手动删除）"""
+    """级联删除会话，并清空该主题的评测缓存"""
     session = get_session(db, session_id)
     if not session:
         return False
+    # 清空评测缓存，确保下次进入同一主题时是新题目
+    cache_key = f"assess_cache_{session.subject}"
+    print(f"DEBUG: Deleting assessment cache for subject: {session.subject} (key: {cache_key})")
+    delete_config(db, cache_key)
+
     # 手动删除关联的 AssessmentRecord，避免外键约束冲突
     assessment = db.query(AssessmentRecord).filter(AssessmentRecord.session_id == session_id).first()
     if assessment:
@@ -162,7 +167,8 @@ def set_assessment_cache(db: Session, subject: str, questions: list):
 
 
 def complete_assessment(db: Session, session_id: int, answers: list,
-                        proficiency: dict, report: str, overall_score: float = 0.0) -> AssessmentRecord:
+                        proficiency: dict, report: str, overall_score: float = 0.0,
+                        question_results: list = None) -> AssessmentRecord:
     record = db.query(AssessmentRecord).filter(AssessmentRecord.session_id == session_id).first()
     if record:
         record.answers = answers
@@ -170,6 +176,7 @@ def complete_assessment(db: Session, session_id: int, answers: list,
         proficiency["__overall__"] = overall_score
         record.proficiency_result = proficiency
         record.ai_report = report
+        record.question_results = question_results
         record.completed = True
         db.commit()
         db.refresh(record)
@@ -343,3 +350,8 @@ def set_config(db: Session, key: str, value: str, description: str = None):
 
 def get_all_configs(db: Session) -> List[SystemConfig]:
     return db.query(SystemConfig).all()
+
+
+def delete_config(db: Session, key: str):
+    db.query(SystemConfig).filter(SystemConfig.key == key).delete(synchronize_session=False)
+    db.commit()

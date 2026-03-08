@@ -133,8 +133,24 @@
     <el-dialog v-model="showDetail" :title="`测验详情 - ${currentQuiz?.item_title}`" width="600px" destroy-on-close>
       <div v-if="currentQuiz" class="quiz-detail">
         <div v-for="(question, idx) in currentQuiz.questions" :key="idx" class="detail-item">
+          <!-- 题目状态头 -->
+          <div v-if="currentQuiz.question_results?.[idx]" class="det-status-row">
+            <el-tag size="small" :type="currentQuiz.question_results[idx]?.is_correct ? 'success' : 'danger'">
+              {{ currentQuiz.question_results[idx]?.is_correct ? '正确' : '待提升' }}
+            </el-tag>
+            <span class="det-score">{{ currentQuiz.question_results[idx]?.score }}分</span>
+          </div>
+
           <div class="det-q">问：{{ question.question || question }}</div>
-          <div class="det-a">答：{{ currentQuiz.answers[idx] }}</div>
+          <div class="det-a">答：{{ currentQuiz.answers?.[idx] }}</div>
+          
+          <!-- 解析与反馈 -->
+          <div v-if="currentQuiz.question_results?.[idx]?.feedback" class="det-f">
+            📝 点评：{{ currentQuiz.question_results[idx]?.feedback }}
+          </div>
+          <div v-if="currentQuiz.question_results?.[idx]?.explanation || question.explanation" class="det-e">
+            💡 解析：{{ currentQuiz.question_results?.[idx]?.explanation || question.explanation }}
+          </div>
         </div>
         <div class="det-feedback">
           <strong>老师点评：</strong>
@@ -222,7 +238,7 @@ async function fetchHistory() {
   loadingHistory.value = true
   try {
     const res: any = await getSessionQuizzes(sessionId)
-    quizHistoryList.value = res || []
+    quizHistoryList.value = res.quizzes || []
   } catch (e) {
     console.error('Fetch history error:', e)
   } finally {
@@ -378,9 +394,13 @@ onMounted(() => {
 .quiz-detail {
   display: flex; flex-direction: column; gap: 16px;
   .detail-item {
-    background: #f8fafc; border-radius: 8px; padding: 12px;
+    background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 12px;
+    .det-status-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .det-score { font-size: 13px; font-weight: 700; color: #64748b; }
     .det-q { font-size: 14px; font-weight: 600; color: #334155; margin-bottom: 6px; }
-    .det-a { font-size: 14px; color: #475569; border-left: 2px solid #cbd5e1; padding-left: 10px; }
+    .det-a { font-size: 14px; color: #475569; border-left: 2px solid #cbd5e1; padding-left: 10px; margin-bottom: 8px; }
+    .det-f { font-size: 13px; color: #4338ca; background: #e0e7ff; padding: 6px 10px; border-radius: 6px; margin-bottom: 6px; }
+    .det-e { font-size: 13px; color: #059669; background: #ecfdf5; padding: 6px 10px; border-radius: 6px; }
   }
   .det-feedback {
     background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; padding: 16px;
