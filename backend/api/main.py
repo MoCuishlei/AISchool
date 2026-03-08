@@ -2,7 +2,7 @@
 FastAPI Web API — AI School 完整教学流程
 """
 
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -32,6 +32,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def api_prefix_middleware(request: Request, call_next):
+    # 如果路径以 /api/ 开头，则去掉 /api 前缀以匹配后端路由
+    if request.url.path.startswith("/api/"):
+        request.scope["path"] = request.url.path[4:]
+    return await call_next(request)
 
 
 @app.on_event("startup")
