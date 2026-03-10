@@ -514,7 +514,6 @@ async def classroom_submit_quiz(
     db: Session = Depends(get_db)
 ):
     """提交小测验答案（支持文字+图片）"""
-    import json as _json
     session = crud.get_session(db, session_id)
     if not session:
         raise HTTPException(404, "会话不存在")
@@ -522,7 +521,7 @@ async def classroom_submit_quiz(
     if not quiz:
         raise HTTPException(404, "测验记录不存在")
 
-    answers_list = _json.loads(answers)
+    answers_list = json.loads(answers)
 
     # 处理图片
     images_b64 = []
@@ -695,7 +694,6 @@ async def exam_submit(
     images: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db)
 ):
-    import json as _json
     session = crud.get_session(db, session_id)
     if not session:
         raise HTTPException(404, "会话不存在")
@@ -703,7 +701,7 @@ async def exam_submit(
     if not exam:
         raise HTTPException(404, "考试记录不存在")
 
-    answers_list = _json.loads(answers)
+    answers_list = json.loads(answers)
     score, report = evaluate_exam(session.subject, exam.exam_type, exam.questions, answers_list)
     crud.complete_exam(db, exam_id, answers_list, score, report)
     return {"exam_id": exam_id, "score": score, "report": report}
