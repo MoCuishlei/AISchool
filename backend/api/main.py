@@ -590,7 +590,7 @@ def get_session_quizzes(session_id: int, db: Session = Depends(get_db)):
             "answers": assessment.answers,
             "score": assessment.proficiency_result.get("__overall__", 0) if assessment.proficiency_result else 0,
             "passed": True,
-            "ai_feedback": assessment.learning_report,
+            "ai_feedback": assessment.ai_report,
             "attempt_number": 1,
             "created_at": assessment.created_at.isoformat() if assessment.created_at else None
         })
